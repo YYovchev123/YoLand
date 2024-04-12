@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: SEE LICENSE IN LICENSE
-pragma solidity 0.8.18;
+pragma solidity 0.8.20;
 
 library Errors {
     /// @notice TokenContract, yToken: When a user inputs an amount greater than his balance
@@ -8,6 +8,12 @@ library Errors {
     /// @notice TokenContract: When a user tries to deposit the amount less or equal to `0`
     error InsufficientDeposit();
 
-    /// @notice yToken: When a transaction is not successful
-    error NotSuccessful();
+    /// @notice yToken: When function is not called by the lending platfrom
+    error onlyLendingPlatform();
+
+    /// @notice yToken: When the invariant of exchangeRate can only increase is broken
+    error ExhangeRateCanOnlyIncrease(uint256 oldExchangeRate, uint256 newExchangeRate);
+
+    /// @notice yToken: Reverts on address(0)
+    error ZeroAddress();
 }

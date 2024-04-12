@@ -1,4 +1,4 @@
-## Invariants
+## Main Invariants
 
 1. The value of the borrowed amount must always stay lower than the value of their collateral times it's collateral factor
 
@@ -8,4 +8,4 @@
 
 `a < b * c`
 
-2. The `exchange rate` can only increase with each ethereum block
+2. The `exchange rate` can only increase with each ethereum block. It should never go down!

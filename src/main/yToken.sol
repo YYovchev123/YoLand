@@ -1,110 +1,134 @@
 // SPDX-License-Identifier: SEE LICENSE IN LICENSE
-pragma solidity 0.8.18;
+pragma solidity 0.8.20;
 
-/// @author Yovchev_Yoan
-/// @dev Credit to Solmate(https://github.com/Rari-Capital/solmate/blob/main/src/tokens/ERC20.sol)
-contract yToken {
+import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {Errors} from "../libraries/Errors.sol";
+import {TokenContract} from "./TokenContract.sol";
+
+contract yToken is ERC20 {
+    using SafeERC20 for IERC20;
+
+    /*///////////////////////////////////////////////
+                    STATE VARIABLES
+    ///////////////////////////////////////////////*/
+
+    /// @notice The underLying token of the yToken
+    TokenContract private immutable i_underlyingAsset;
+
+    // @audit CHECK IF LENDINGPLATFORM IS THE RIGHT CONTRACT!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    /// @notice The address of the Lending Platform
+    address private immutable i_lendingPlatform;
+
+    /// @notice The underlying per asset exchange rate
+    /// @dev ie: s_exchangeRate = 2
+    /// @dev means 1 asset token is worth 2 underlying tokens
+    uint256 private s_exchangeRate;
+
+    /// @notice The exchange rate precision
+    /// @dev It is used to calculate decimals precision
+    uint256 public constant EXCHANGE_RATE_PRECISION = 1e18;
+
+    /// @notice The starting exchange rate of yToken
+    uint256 private constant STARTING_EXCHANGE_RATE = 1e18;
+
     /*///////////////////////////////////////////////
                         EVENTS
     ///////////////////////////////////////////////*/
 
-    event Transfer(address indexed from, address indexed to, uint256 amount);
-    event Approval(address indexed owner, address indexed spender, uint256 amount);
+    /// @notice Emitted when exchange rate is upated
+    /// @param newExchangeRate The new exchange rate
+    event ExchangeRateUpdated(uint256 newExchangeRate);
 
     /*///////////////////////////////////////////////
-                    STORAGE VARIABLES
+                        MODIFIERS
     ///////////////////////////////////////////////*/
-    string public s_name;
-    string public s_symbol;
-    uint8 public immutable i_decimals;
-    uint256 public s_totalSupply;
 
-    mapping(address => uint256) public s_balanceOf;
-    mapping(address => mapping(address => uint256)) public s_allowance;
+    /// @notice Allows a function to be called only by the LendingPlatform
+    modifier onlyLendingPlatform() {
+        if (msg.sender != i_lendingPlatform) {
+            revert Errors.onlyLendingPlatform();
+        }
+        _;
+    }
+
+    /// @notice Reverts if the address passed is equal to address(0)
+    /// @param anAddress the address being checked
+    modifier revertIfZeroAddress(address anAddress) {
+        if (anAddress == address(0)) {
+            revert Errors.ZeroAddress();
+        }
+        _;
+    }
 
     /*///////////////////////////////////////////////
                     CONSTRUCTOR
     ///////////////////////////////////////////////*/
-    constructor(string memory _name, string memory _symbol, uint8 _decimals) {
-        s_name = _name;
-        s_symbol = _symbol;
-        i_decimals = _decimals;
+
+    /// @notice Constructor: sets the lendingPlaftorm, underlyingAsset, name and symbol
+    /// @param lendingPlatform The address of the lendingPlaftorm
+    /// @param underlyingAsset The underlying asset
+    /// @param name The name of yToken
+    /// @param symbol The symbol of yToken
+    constructor(address lendingPlatform, address underlyingAsset, string memory name, string memory symbol)
+        ERC20(name, symbol)
+        revertIfZeroAddress(lendingPlatform)
+        revertIfZeroAddress(address(underlyingAsset))
+    {
+        i_lendingPlatform = lendingPlatform;
+        i_underlyingAsset = TokenContract(underlyingAsset);
+        s_exchangeRate = STARTING_EXCHANGE_RATE;
     }
 
     /*///////////////////////////////////////////////
                     EXTERNAL FUNCTIONS
     ///////////////////////////////////////////////*/
 
-    // add Access Control
-    function mint(uint256 _amount) external {}
-
-    function redeem(uint256 _amount) external {}
-
-    function approve(address spender, uint256 amount) public virtual returns (bool) {
-        s_allowance[msg.sender][spender] = amount;
-
-        emit Approval(msg.sender, spender, amount);
-
-        return true;
+    /// @notice Mints a specified amount of tokens to a specified address
+    /// @param to The address the tokens are minted to
+    /// @param amount The amount of tokens to be minted
+    function mint(address to, uint256 amount) external onlyLendingPlatform {
+        _mint(to, amount);
     }
 
-    function transfer(address to, uint256 amount) public virtual returns (bool) {
-        s_balanceOf[msg.sender] -= amount;
-
-        // Cannot overflow because the sum of all user
-        // balances can't exceed the max uint256 value.
-        unchecked {
-            s_balanceOf[to] += amount;
-        }
-
-        emit Transfer(msg.sender, to, amount);
-
-        return true;
+    /// @notice Burns a specified amount of tokens to a specified address
+    /// @param account The address from whom the tokens are burned
+    /// @param amount The amount of tokens to be burned
+    function burn(address account, uint256 amount) external onlyLendingPlatform {
+        _burn(account, amount);
     }
 
-    function transferFrom(address from, address to, uint256 amount) public virtual returns (bool) {
-        uint256 allowed = s_allowance[from][msg.sender]; // Saves gas for limited approvals.
-
-        if (allowed != type(uint256).max) s_allowance[from][msg.sender] = allowed - amount;
-
-        s_balanceOf[from] -= amount;
-
-        // Cannot overflow because the sum of all user
-        // balances can't exceed the max uint256 value.
-        unchecked {
-            s_balanceOf[to] += amount;
-        }
-
-        emit Transfer(from, to, amount);
-
-        return true;
+    /// @notice Transfers a specified amount of underlying token to a specified address
+    /// @param to The address to transfer to
+    /// @param amount The amount of tokens to be transfered
+    function transferUnderlyingTo(address to, uint256 amount) external onlyLendingPlatform {
+        i_underlyingAsset.transfer(to, amount);
     }
 
-    /*//////////////////////////////////////////////////////////////
-                        INTERNAL MINT/BURN LOGIC
-    //////////////////////////////////////////////////////////////*/
+    /// @notice Responsible for updating the exchange rate of AssetToken to Underlying
+    /// @param fee The calcualted fee
+    function updateExchangeRate(uint256 fee) external onlyLendingPlatform {
+        /// dev what if the totalSupply is 0?
+        /// dev what if this results in mishandling ETH!!! aka losing precision
 
-    function _mint(address to, uint256 amount) internal virtual {
-        s_totalSupply += amount;
+        uint256 exchangeRate = s_exchangeRate;
+        uint256 newExchangeRate = exchangeRate * (totalSupply() + fee) / totalSupply();
 
-        // Cannot overflow because the sum of all user
-        // balances can't exceed the max uint256 value.
-        unchecked {
-            s_balanceOf[to] += amount;
+        if (newExchangeRate <= exchangeRate) {
+            revert Errors.ExhangeRateCanOnlyIncrease(exchangeRate, newExchangeRate);
         }
-
-        emit Transfer(address(0), to, amount);
+        s_exchangeRate = newExchangeRate;
+        emit ExchangeRateUpdated(exchangeRate);
     }
 
-    function _burn(address from, uint256 amount) internal virtual {
-        s_balanceOf[from] -= amount;
+    /// @notice Returns the Exchange rate
+    function getExchangeRate() external view returns (uint256) {
+        return s_exchangeRate;
+    }
 
-        // Cannot underflow because a user's balance
-        // will never be larger than the total supply.
-        unchecked {
-            s_totalSupply -= amount;
-        }
-
-        emit Transfer(from, address(0), amount);
+    /// @notice Returns the address of the underlying token
+    function getUnderlying() external view returns (address) {
+        return address(i_underlyingAsset);
     }
 }
