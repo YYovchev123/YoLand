@@ -8,6 +8,9 @@ library Errors {
     /// @notice TokenContract: When a user tries to deposit the amount less or equal to `0`
     error InsufficientDeposit();
 
+    /// @notice TokenContract: When a user tries to transfer from an amount bigger than the allowance
+    error InsufficientAllowance();
+
     /// @notice yToken: When function is not called by the lending platfrom
     error onlyLendingPlatform();
 

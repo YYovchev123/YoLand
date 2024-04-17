@@ -77,6 +77,7 @@ contract TokenContract {
     /// @param amount The amount of tokens a user wants to deposit
     /// @return Whether the deposit succeeded
     function deposit(uint256 amount) external returns (bool) {
+        /// @dev should we check if the amount is firstly approved by the `msg.sender`???
         if (amount <= 0) revert Errors.InsufficientDeposit();
 
         unchecked {
@@ -93,10 +94,10 @@ contract TokenContract {
     /// @param amount The amount of tokens a user wants to withdraw
     /// @return Whether the withdrawal succeeded
     function withdraw(uint256 amount) external returns (bool) {
-        if (s_balanceOf[msg.sender] > amount) revert Errors.InsufficientBalance();
+        if (s_balanceOf[msg.sender] < amount) revert Errors.InsufficientBalance();
 
-        s_balanceOf[msg.sender] += amount;
-        s_totalSupply += amount;
+        s_balanceOf[msg.sender] -= amount;
+        s_totalSupply -= amount;
 
         emit Withdraw(msg.sender, amount);
 
@@ -127,6 +128,7 @@ contract TokenContract {
     /// @return Whether the transfer succeeded
     function transferFrom(address from, address to, uint256 amount) external returns (bool) {
         uint256 allowedAmount = s_allowance[from][msg.sender];
+        if (allowedAmount < amount) revert Errors.InsufficientAllowance();
         if (allowedAmount != type(uint256).max) s_allowance[from][msg.sender] = allowedAmount - amount;
 
         s_balanceOf[from] -= amount;
