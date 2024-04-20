@@ -7,7 +7,11 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {Errors} from "../libraries/Errors.sol";
 import {TokenContract} from "./TokenContract.sol";
 
-contract yToken is ERC20 {
+/// @title YToken
+/// @author YovchevYoan
+/// @notice This contract is a token that represents the shares owned by each user for a specified underlying token
+/// @dev Responsible for updating the exchangeRate between underlying and yToken
+contract YToken is ERC20 {
     using SafeERC20 for IERC20;
 
     /*///////////////////////////////////////////////
@@ -109,8 +113,8 @@ contract yToken is ERC20 {
     /// @notice Responsible for updating the exchange rate of AssetToken to Underlying
     /// @param fee The calcualted fee
     function updateExchangeRate(uint256 fee) external onlyLendingPlatform {
-        /// dev what if the totalSupply is 0?
-        /// dev what if this results in mishandling ETH!!! aka losing precision
+        /// @dev what if the totalSupply is 0?
+        /// @dev what if this results in mishandling ETH!!! aka losing precision
 
         uint256 exchangeRate = s_exchangeRate;
         uint256 newExchangeRate = exchangeRate * (totalSupply() + fee) / totalSupply();

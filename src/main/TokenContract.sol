@@ -3,6 +3,8 @@ pragma solidity 0.8.20;
 
 import {Errors} from "../libraries/Errors.sol";
 
+/// @title Token Contract
+/// @author YovchevYoan
 contract TokenContract {
     /*///////////////////////////////////////////////
                         EVENTS

@@ -19,4 +19,7 @@ library Errors {
 
     /// @notice yToken: Reverts on address(0)
     error ZeroAddress();
+
+    /// @notice OracleContract: Reverts when a price has not been updated for a specified amount of time
+    error StalePrice();
 }

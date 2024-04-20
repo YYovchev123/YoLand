@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: SEE LICENSE IN LICENSE
 pragma solidity 0.8.20;
 
+/// @title InterestRateModel
+/// @author YovchevYoan
+/// @notice This contract is responsible for the interest rate
 contract InterestRateModel {
     /// @notice Interest rate precision
     uint256 public constant INTEREST_RATE_PRECISION = 1e18;
