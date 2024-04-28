@@ -22,4 +22,16 @@ library Errors {
 
     /// @notice OracleContract: Reverts when a price has not been updated for a specified amount of time
     error StalePrice();
+
+    /// @notice LendingPool: Reverts if the provided token address is not supported
+    error TokenNotSupported();
+
+    /// @notice LendingPool: Reverts if the provided token does not have its YToken configured
+    error YTokenNotConfigured();
+
+    /// @notice LendingPool: Reverts if a transfer fails
+    error TransferFailed();
+
+    /// @notice LendingPool: Reverts if a deposit fails
+    error DepositFailed();
 }
