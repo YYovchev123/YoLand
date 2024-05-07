@@ -11,7 +11,7 @@ library Errors {
     /// @notice TokenContract: When a user tries to transfer from an amount bigger than the allowance
     error InsufficientAllowance();
 
-    /// @notice yToken: When function is not called by the lending platfrom
+    /// @notice yToken, Vault: When function is not called by the lending platfrom
     error onlyLendingPlatform();
 
     /// @notice yToken: When the invariant of exchangeRate can only increase is broken
@@ -34,4 +34,10 @@ library Errors {
 
     /// @notice LendingPool: Reverts if a deposit fails
     error DepositFailed();
+
+    /// @notice Vault: Reverts when an ERC20 transfer is called with msg.vaule > 0
+    error SendingETHWithERC20Transfer();
+
+    /// @notice Vault: Reverts when the amount and the provided value do not match
+    error AmountAndValueSentDoNotMatch();
 }

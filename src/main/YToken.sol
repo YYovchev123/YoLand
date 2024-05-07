@@ -23,7 +23,7 @@ contract YToken is ERC20 {
 
     // @audit CHECK IF LENDINGPLATFORM IS THE RIGHT CONTRACT!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     /// @notice The address of the Lending Platform
-    address private immutable i_lendingPlatform;
+    address private immutable i_lendingPool;
 
     /// @notice The underlying per asset exchange rate
     /// @dev ie: s_exchangeRate = 2
@@ -51,7 +51,7 @@ contract YToken is ERC20 {
 
     /// @notice Allows a function to be called only by the LendingPlatform
     modifier onlyLendingPlatform() {
-        if (msg.sender != i_lendingPlatform) {
+        if (msg.sender != i_lendingPool) {
             revert Errors.onlyLendingPlatform();
         }
         _;
@@ -71,16 +71,16 @@ contract YToken is ERC20 {
     ///////////////////////////////////////////////*/
 
     /// @notice Constructor: sets the lendingPlaftorm, underlyingAsset, name and symbol
-    /// @param lendingPlatform The address of the lendingPlaftorm
+    /// @param lendingPool The address of the lendingPool
     /// @param underlyingAsset The underlying asset
     /// @param name The name of yToken
     /// @param symbol The symbol of yToken
-    constructor(address lendingPlatform, address underlyingAsset, string memory name, string memory symbol)
+    constructor(address lendingPool, address underlyingAsset, string memory name, string memory symbol)
         ERC20(name, symbol)
-        revertIfZeroAddress(lendingPlatform)
+        revertIfZeroAddress(lendingPool)
         revertIfZeroAddress(address(underlyingAsset))
     {
-        i_lendingPlatform = lendingPlatform;
+        i_lendingPool = lendingPool;
         i_underlyingAsset = TokenContract(underlyingAsset);
         s_exchangeRate = STARTING_EXCHANGE_RATE;
     }
