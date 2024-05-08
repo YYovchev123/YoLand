@@ -5,7 +5,6 @@ import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Errors} from "../libraries/Errors.sol";
-import {TokenContract} from "./TokenContract.sol";
 
 /// @title YToken
 /// @author YovchevYoan
@@ -19,7 +18,7 @@ contract YToken is ERC20 {
     ///////////////////////////////////////////////*/
 
     /// @notice The underLying token of the yToken
-    TokenContract private immutable i_underlyingAsset;
+    IERC20 private immutable i_underlyingAsset;
 
     // @audit CHECK IF LENDINGPLATFORM IS THE RIGHT CONTRACT!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     /// @notice The address of the Lending Platform
@@ -49,10 +48,10 @@ contract YToken is ERC20 {
                         MODIFIERS
     ///////////////////////////////////////////////*/
 
-    /// @notice Allows a function to be called only by the LendingPlatform
-    modifier onlyLendingPlatform() {
+    /// @notice Allows a function to be called only by the LendingPool
+    modifier onlyLendingPool() {
         if (msg.sender != i_lendingPool) {
-            revert Errors.onlyLendingPlatform();
+            revert Errors.onlyLendingPool();
         }
         _;
     }
@@ -78,10 +77,10 @@ contract YToken is ERC20 {
     constructor(address lendingPool, address underlyingAsset, string memory name, string memory symbol)
         ERC20(name, symbol)
         revertIfZeroAddress(lendingPool)
-        revertIfZeroAddress(address(underlyingAsset))
+        revertIfZeroAddress(underlyingAsset)
     {
         i_lendingPool = lendingPool;
-        i_underlyingAsset = TokenContract(underlyingAsset);
+        i_underlyingAsset = IERC20(underlyingAsset);
         s_exchangeRate = STARTING_EXCHANGE_RATE;
     }
 
@@ -92,27 +91,28 @@ contract YToken is ERC20 {
     /// @notice Mints a specified amount of tokens to a specified address
     /// @param to The address the tokens are minted to
     /// @param amount The amount of tokens to be minted
-    function mint(address to, uint256 amount) external onlyLendingPlatform {
+    function mint(address to, uint256 amount) external onlyLendingPool {
         _mint(to, amount);
     }
 
     /// @notice Burns a specified amount of tokens to a specified address
     /// @param account The address from whom the tokens are burned
     /// @param amount The amount of tokens to be burned
-    function burn(address account, uint256 amount) external onlyLendingPlatform {
+    function burn(address account, uint256 amount) external onlyLendingPool {
         _burn(account, amount);
     }
 
+    // @audit Do I need this function??? Probably not!
     /// @notice Transfers a specified amount of underlying token to a specified address
     /// @param to The address to transfer to
     /// @param amount The amount of tokens to be transfered
-    function transferUnderlyingTo(address to, uint256 amount) external onlyLendingPlatform {
+    function transferUnderlyingTo(address to, uint256 amount) external onlyLendingPool {
         i_underlyingAsset.transfer(to, amount);
     }
 
     /// @notice Responsible for updating the exchange rate of AssetToken to Underlying
     /// @param fee The calcualted fee
-    function updateExchangeRate(uint256 fee) external onlyLendingPlatform {
+    function updateExchangeRate(uint256 fee) external onlyLendingPool {
         /// @dev what if the totalSupply is 0?
         /// @dev what if this results in mishandling ETH!!! aka losing precision
 

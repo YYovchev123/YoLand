@@ -11,8 +11,8 @@ library Errors {
     /// @notice TokenContract: When a user tries to transfer from an amount bigger than the allowance
     error InsufficientAllowance();
 
-    /// @notice yToken, Vault: When function is not called by the lending platfrom
-    error onlyLendingPlatform();
+    /// @notice yToken, Vault: When function is not called by the lending pool
+    error onlyLendingPool();
 
     /// @notice yToken: When the invariant of exchangeRate can only increase is broken
     error ExhangeRateCanOnlyIncrease(uint256 oldExchangeRate, uint256 newExchangeRate);
@@ -20,16 +20,22 @@ library Errors {
     /// @notice yToken: Reverts on address(0)
     error ZeroAddress();
 
+    /// @notice LendingPool: Reverts on an amount being 0
+    error AmountCannotBeZero();
+
     /// @notice OracleContract: Reverts when a price has not been updated for a specified amount of time
     error StalePrice();
 
     /// @notice LendingPool: Reverts if the provided token address is not supported
     error TokenNotSupported();
 
+    /// @notice LendingPool: Reverts if the procided token has already been supported
+    error YTokenAlreadySupported(address token);
+
     /// @notice LendingPool: Reverts if the provided token does not have its YToken configured
     error YTokenNotConfigured();
 
-    /// @notice LendingPool: Reverts if a transfer fails
+    /// @notice LendingPool, Vault: Reverts if a transfer fails
     error TransferFailed();
 
     /// @notice LendingPool: Reverts if a deposit fails

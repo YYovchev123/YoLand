@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: SEE LICENSE IN LICENSE
 pragma solidity 0.8.20;
 
-import {Errors} from "../libraries/Errors.sol";
-
 /// @title Token Contract
 /// @author YovchevYoan
 contract TokenContract {
+    error InsufficientDeposit();
+    error InsufficientBalance();
+    error InsufficientAllowance();
+
     /*///////////////////////////////////////////////
                         EVENTS
     ///////////////////////////////////////////////*/
@@ -75,43 +77,12 @@ contract TokenContract {
                     EXTERNAL FUNCTIONS
     ///////////////////////////////////////////////*/
 
-    /// @notice Allows a user to deposit a specified amount of tokens
-    /// @param amount The amount of tokens a user wants to deposit
-    /// @return Whether the deposit succeeded
-    function deposit(uint256 amount) external returns (bool) {
-        /// @dev should we check if the amount is firstly approved by the `msg.sender`???
-        if (amount <= 0) revert Errors.InsufficientDeposit();
-
-        unchecked {
-            s_balanceOf[msg.sender] += amount;
-            s_totalSupply += amount;
-        }
-
-        emit Deposit(msg.sender, amount);
-
-        return true;
-    }
-
-    /// @notice Allows a user to withdraw a specified amount of tokens
-    /// @param amount The amount of tokens a user wants to withdraw
-    /// @return Whether the withdrawal succeeded
-    function withdraw(uint256 amount) external returns (bool) {
-        if (s_balanceOf[msg.sender] < amount) revert Errors.InsufficientBalance();
-
-        s_balanceOf[msg.sender] -= amount;
-        s_totalSupply -= amount;
-
-        emit Withdraw(msg.sender, amount);
-
-        return true;
-    }
-
     /// @notice Transfers tokens from the caller to another user.
     /// @param to The user to transfer tokens to
     /// @param amount The amount of tokens to transfer
     /// @return Whether the transfer succeeded
     function transfer(address to, uint256 amount) external returns (bool) {
-        if (s_balanceOf[msg.sender] < amount) revert Errors.InsufficientBalance();
+        if (s_balanceOf[msg.sender] < amount) revert InsufficientBalance();
 
         s_balanceOf[msg.sender] -= amount;
         unchecked {
@@ -130,7 +101,7 @@ contract TokenContract {
     /// @return Whether the transfer succeeded
     function transferFrom(address from, address to, uint256 amount) external returns (bool) {
         uint256 allowedAmount = s_allowance[from][msg.sender];
-        if (allowedAmount < amount) revert Errors.InsufficientAllowance();
+        if (allowedAmount < amount) revert InsufficientAllowance();
         if (allowedAmount != type(uint256).max) s_allowance[from][msg.sender] = allowedAmount - amount;
 
         s_balanceOf[from] -= amount;
