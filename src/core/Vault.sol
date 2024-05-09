@@ -24,7 +24,7 @@ contract Vault {
     address private s_lendingPool;
 
     /// @notice Mapping holding users token balances
-    mapping(address user => mapping(address token => uint256 amount)) private balanceOf;
+    mapping(address user => mapping(address token => uint256 amount)) private s_balanceOf;
 
     /*///////////////////////////////////////////////
                     CONSTRUCTOR
@@ -58,11 +58,11 @@ contract Vault {
         if (token != EthAddressLib.ethAddress()) {
             if (msg.value != 0) revert Errors.SendingETHWithERC20Transfer();
 
-            balanceOf[user][token] += amount;
+            s_balanceOf[user][token] += amount;
             IERC20(token).safeTransferFrom(user, address(this), amount);
         } else {
             if (msg.value != amount) revert Errors.AmountAndValueSentDoNotMatch();
-            balanceOf[user][EthAddressLib.ethAddress()] += amount;
+            s_balanceOf[user][EthAddressLib.ethAddress()] += amount;
         }
     }
 
@@ -70,12 +70,12 @@ contract Vault {
     /// @param user The address of the user
     /// @param token The address of the token
     /// @param amount The amount to be transfered
-    function transferTokenToUser(address user, address token, uint256 amount) external {
+    function transferTokenToUser(address user, address token, uint256 amount) external onlyLendingPool {
         if (token != EthAddressLib.ethAddress()) {
-            balanceOf[user][token] -= amount;
-            IERC20(token).safeTransferFrom(address(this), user, amount);
+            s_balanceOf[user][token] -= amount;
+            IERC20(token).safeTransfer(user, amount);
         } else {
-            balanceOf[user][EthAddressLib.ethAddress()] -= amount;
+            s_balanceOf[user][EthAddressLib.ethAddress()] -= amount;
             // @question Check for reentrancy
             (bool success,) = payable(user).call{value: amount}("");
             if (!success) revert Errors.TransferFailed();
@@ -90,7 +90,7 @@ contract Vault {
     /// @param token The address of the token
     /// @param user The address of the user
     function getBalance(address user, address token) public view returns (uint256) {
-        return balanceOf[user][token];
+        return s_balanceOf[user][token];
     }
 
     // @question do we need this function???

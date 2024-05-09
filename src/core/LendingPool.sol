@@ -6,12 +6,12 @@ import {InterestRateModel} from "../core/InterestRateModel.sol";
 import {YToken} from "./YToken.sol";
 import {Errors} from "../libraries/Errors.sol";
 import {EthAddressLib} from "../libraries/EthAddressLib.sol";
-import {AggregatorV3Interface} from "@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
 import {Ownable} from "openzeppelin-contracts/contracts/access/Ownable.sol";
 import {Vault} from "./Vault.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {InterestRateModel} from "./InterestRateModel.sol";
+import {CollateralTracker} from "./CollateralTracker.sol";
 
 // REMOVE AFTER TESTING
 import {console} from "forge-std/Test.sol";
@@ -43,14 +43,21 @@ contract LendingPool is Ownable(msg.sender) {
     /// @param tokenAmount The amount of token redeemed by the user
     event Withdraw(address indexed user, address token, uint256 amountYToken, uint256 tokenAmount);
 
+    /// @notice Emitted when a price feed address is added to token
+    /// @param token The address of the token
+    /// @param priceFeed The address of the price feed
+    event TokenPriceFeedAdded(address indexed token, address priceFeed);
+
     /*///////////////////////////////////////////////
                     STATE VARIABLES
     ///////////////////////////////////////////////*/
 
     /// @notice The vault in which tokens are stored
     Vault private s_vault;
-    /// @notice TODO
+    /// @notice The interest rate model contract
     InterestRateModel private s_interestRateModel;
+    /// @notice
+    CollateralTracker private s_collateralTracker;
 
     /// @notice Fee parameter: 0.03 %
     uint256 private constant FEE = 3e15;
@@ -71,6 +78,9 @@ contract LendingPool is Ownable(msg.sender) {
     /// @notice Constructor: sets the vault address and the initial supported tokens
     /// @param interestRateModel The address of InterestRateModel contract
     /// @param supportedTokens The initial supported tokens
+
+    /// TODO FIND THE BEST WAY TO PASS THE `PRICE_FEED` ADDRESSES
+
     constructor(address interestRateModel, address[] memory supportedTokens) {
         s_interestRateModel = InterestRateModel(interestRateModel);
 
@@ -102,30 +112,32 @@ contract LendingPool is Ownable(msg.sender) {
                     EXTERNAL FUCTIONS
     ///////////////////////////////////////////////*/
 
-    /// @notice This function sets up the Vault contract
+    /// @notice This function sets up the Vault and CollateralTracker contracts
     /// @dev This function will be called right after contract deployment
     /// so the protocol does not break
     /// @param vault The Vault address
-    function initializeVault(address vault) external onlyOwner {
+    function initializeVaultAndCollateralTracker(address vault, address collateralTracker) external onlyOwner {
         s_vault = Vault(vault);
+        s_collateralTracker = CollateralTracker(collateralTracker);
     }
 
-    /// @notice Called by users wanting to deposit tokens into the protocol
-    /// @dev This function mint YTokens to the depositors determined by the YToken's
+    /// @notice Called by users wanting to lend tokens into the protocol
+    /// @dev This function mint YTokens to the lenders determined by the YToken's
     /// exchange rate
     /// @dev The function reverts if value is sent and the token is not ETH
     /// @param token The address of the token
-    /// @param amount The amount of tokens to be deposited
-    function deposit(address token, uint256 amount)
+    /// @param amount The amount of tokens to be lenders
+    function lend(address token, uint256 amount)
         external
         payable
         revertIfZero(amount)
         revertIfTokenNotSupported(token)
     {
-        if (msg.value < 0 && token != EthAddressLib.ethAddress()) revert Errors.ValueSendWithNonETHToken();
+        if (msg.value > 0 && token != EthAddressLib.ethAddress()) revert Errors.ValueSendWithNonETHToken();
         YToken yToken = YToken(s_tokenToYToken[token]);
 
         uint256 mintAmount = (amount * yToken.EXCHANGE_RATE_PRECISION()) / yToken.getExchangeRate();
+        // @question is there any way for a potential DOS here???
         if (mintAmount == 0) revert Errors.AmountCannotBeZero();
 
         yToken.mint(msg.sender, mintAmount);
@@ -151,10 +163,14 @@ contract LendingPool is Ownable(msg.sender) {
         }
         // The amount of underlying token to transfer to the user
         uint256 tokenAmount = (amountYToken * yToken.getExchangeRate()) / yToken.EXCHANGE_RATE_PRECISION();
+
         yToken.burn(msg.sender, amountYToken);
         s_vault.transferTokenToUser(msg.sender, token, tokenAmount);
+
         emit Withdraw(msg.sender, token, amountYToken, tokenAmount);
     }
+
+    function depositCollateral(address token, uint256 amount) external {}
 
     function borrow(address token, uint256 amount) external {}
 
@@ -212,6 +228,11 @@ contract LendingPool is Ownable(msg.sender) {
     /// @return The YToken contract address
     function getYTokenBasedOnToken(address token) public view returns (address) {
         return s_tokenToYToken[token];
+    }
+
+    function addTokenPriceFeed(address token, address priceFeed) public onlyOwner returns (address, address) {
+        emit TokenPriceFeedAdded(token, priceFeed);
+        return s_collateralTracker.addTokenPriceFeed(token, priceFeed);
     }
 
     // @question do we need this function???
