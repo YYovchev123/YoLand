@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: SEE LICENSE IN LICENSE
 pragma solidity 0.8.20;
 
+/// @title Errors
+/// @author YovchevYoan
+/// @notice A library containing all the errors
 library Errors {
     /// @notice TokenContract, yToken: When a user inputs an amount greater than his balance
     error InsufficientBalance();
