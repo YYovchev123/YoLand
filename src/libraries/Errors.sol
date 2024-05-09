@@ -46,4 +46,6 @@ library Errors {
 
     /// @notice Vault: Reverts when the amount and the provided value do not match
     error AmountAndValueSentDoNotMatch();
+
+    error ValueSendWithNonETHToken();
 }

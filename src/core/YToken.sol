@@ -14,13 +14,19 @@ contract YToken is ERC20 {
     using SafeERC20 for IERC20;
 
     /*///////////////////////////////////////////////
+                        EVENTS
+    ///////////////////////////////////////////////*/
+
+    /// @notice Emitted when exchange rate is upated
+    /// @param newExchangeRate The new exchange rate
+    event ExchangeRateUpdated(uint256 newExchangeRate);
+
+    /*///////////////////////////////////////////////
                     STATE VARIABLES
     ///////////////////////////////////////////////*/
 
     /// @notice The underLying token of the yToken
     IERC20 private immutable i_underlyingAsset;
-
-    // @audit CHECK IF LENDINGPLATFORM IS THE RIGHT CONTRACT!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     /// @notice The address of the Lending Platform
     address private immutable i_lendingPool;
 
@@ -32,17 +38,8 @@ contract YToken is ERC20 {
     /// @notice The exchange rate precision
     /// @dev It is used to calculate decimals precision
     uint256 public constant EXCHANGE_RATE_PRECISION = 1e18;
-
     /// @notice The starting exchange rate of yToken
     uint256 private constant STARTING_EXCHANGE_RATE = 1e18;
-
-    /*///////////////////////////////////////////////
-                        EVENTS
-    ///////////////////////////////////////////////*/
-
-    /// @notice Emitted when exchange rate is upated
-    /// @param newExchangeRate The new exchange rate
-    event ExchangeRateUpdated(uint256 newExchangeRate);
 
     /*///////////////////////////////////////////////
                         MODIFIERS
@@ -100,14 +97,6 @@ contract YToken is ERC20 {
     /// @param amount The amount of tokens to be burned
     function burn(address account, uint256 amount) external onlyLendingPool {
         _burn(account, amount);
-    }
-
-    // @audit Do I need this function??? Probably not!
-    /// @notice Transfers a specified amount of underlying token to a specified address
-    /// @param to The address to transfer to
-    /// @param amount The amount of tokens to be transfered
-    function transferUnderlyingTo(address to, uint256 amount) external onlyLendingPool {
-        i_underlyingAsset.transfer(to, amount);
     }
 
     /// @notice Responsible for updating the exchange rate of AssetToken to Underlying
