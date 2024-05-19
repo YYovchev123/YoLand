@@ -11,7 +11,6 @@ import {Vault} from "./Vault.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {InterestRateModel} from "./InterestRateModel.sol";
-import {CollateralTracker} from "./CollateralTracker.sol";
 
 // REMOVE AFTER TESTING
 import {console} from "forge-std/Test.sol";
@@ -34,14 +33,23 @@ contract LendingPool is Ownable(msg.sender) {
     /// @param token The address of the token
     /// @param yToken The address of the corresponding YToken
     /// @param isSupported Whether or not the token is supported
-    event SupportedToken(address indexed token, address yToken, bool isSupported);
+    event SupportedToken(
+        address indexed token,
+        address yToken,
+        bool isSupported
+    );
 
     /// @notice Emitted when a user withdraws
     /// @param user The user who withdrew
     /// @param token The address of the token
     /// @param amountYToken The amount of yToken burnt
     /// @param tokenAmount The amount of token redeemed by the user
-    event Withdraw(address indexed user, address token, uint256 amountYToken, uint256 tokenAmount);
+    event Withdraw(
+        address indexed user,
+        address token,
+        uint256 amountYToken,
+        uint256 tokenAmount
+    );
 
     /// @notice Emitted when a price feed address is added to token
     /// @param token The address of the token
@@ -56,8 +64,6 @@ contract LendingPool is Ownable(msg.sender) {
     Vault private s_vault;
     /// @notice The interest rate model contract
     InterestRateModel private s_interestRateModel;
-    /// @notice
-    CollateralTracker private s_collateralTracker;
 
     /// @notice Fee parameter: 0.03 %
     uint256 private constant FEE = 3e15;
@@ -70,6 +76,8 @@ contract LendingPool is Ownable(msg.sender) {
     /// @dev Mapping traking the address of the token to a bool
     // whether the token is supported or not | token => isSupported
     mapping(address token => bool isSupported) private s_supportedTokens;
+    /// @dev An array with the supported tokens
+    address[] private s_supportedTokensArray;
 
     /*///////////////////////////////////////////////
                     CONSTRUCTOR
@@ -80,7 +88,6 @@ contract LendingPool is Ownable(msg.sender) {
     /// @param supportedTokens The initial supported tokens
 
     /// TODO FIND THE BEST WAY TO PASS THE `PRICE_FEED` ADDRESSES
-
     constructor(address interestRateModel, address[] memory supportedTokens) {
         s_interestRateModel = InterestRateModel(interestRateModel);
 
@@ -112,13 +119,12 @@ contract LendingPool is Ownable(msg.sender) {
                     EXTERNAL FUCTIONS
     ///////////////////////////////////////////////*/
 
-    /// @notice This function sets up the Vault and CollateralTracker contracts
+    /// @notice This function sets up the Vault contract
     /// @dev This function will be called right after contract deployment
     /// so the protocol does not break
     /// @param vault The Vault address
-    function initializeVaultAndCollateralTracker(address vault, address collateralTracker) external onlyOwner {
-        s_vault = Vault(vault);
-        s_collateralTracker = CollateralTracker(collateralTracker);
+    function initializeVault(address vault) external onlyOwner {
+        s_vault = Vault(payable(vault));
     }
 
     /// @notice Called by users wanting to lend tokens into the protocol
@@ -127,22 +133,22 @@ contract LendingPool is Ownable(msg.sender) {
     /// @dev The function reverts if value is sent and the token is not ETH
     /// @param token The address of the token
     /// @param amount The amount of tokens to be lenders
-    function lend(address token, uint256 amount)
-        external
-        payable
-        revertIfZero(amount)
-        revertIfTokenNotSupported(token)
-    {
-        if (msg.value > 0 && token != EthAddressLib.ethAddress()) revert Errors.ValueSendWithNonETHToken();
+    function lend(
+        address token,
+        uint256 amount
+    ) external payable revertIfZero(amount) revertIfTokenNotSupported(token) {
+        if (msg.value > 0 && token != EthAddressLib.ethAddress())
+            revert Errors.ValueSendWithNonETHToken();
         YToken yToken = YToken(s_tokenToYToken[token]);
 
-        uint256 mintAmount = (amount * yToken.EXCHANGE_RATE_PRECISION()) / yToken.getExchangeRate();
+        uint256 mintAmount = (amount * yToken.EXCHANGE_RATE_PRECISION()) /
+            yToken.getExchangeRate();
         // @question is there any way for a potential DOS here???
         if (mintAmount == 0) revert Errors.AmountCannotBeZero();
 
         yToken.mint(msg.sender, mintAmount);
 
-        s_vault.transferTokenToVault{value: msg.value}(token, msg.sender, amount);
+        s_vault.lend{value: msg.value}(token, msg.sender, amount);
         emit Deposit(msg.sender, amount);
     }
 
@@ -152,60 +158,83 @@ contract LendingPool is Ownable(msg.sender) {
     /// @dev The function burns the provided amount of YToken
     /// @param token The address of the token
     /// @param amountYToken The amount of YTokens provided for withdrawal
-    function withdraw(address token, uint256 amountYToken)
-        external
-        revertIfZero(amountYToken)
-        revertIfTokenNotSupported(token)
-    {
+    function withdraw(
+        address token,
+        uint256 amountYToken
+    ) external revertIfZero(amountYToken) revertIfTokenNotSupported(token) {
         YToken yToken = YToken(s_tokenToYToken[token]);
         if (amountYToken == type(uint256).max) {
-            amountYToken = s_vault.getBalance(msg.sender, token);
+            amountYToken = s_vault.getLentDeposited(msg.sender, token);
         }
         // The amount of underlying token to transfer to the user
-        uint256 tokenAmount = (amountYToken * yToken.getExchangeRate()) / yToken.EXCHANGE_RATE_PRECISION();
+        uint256 tokenAmount = (amountYToken * yToken.getExchangeRate()) /
+            yToken.EXCHANGE_RATE_PRECISION();
 
         yToken.burn(msg.sender, amountYToken);
-        s_vault.transferTokenToUser(msg.sender, token, tokenAmount);
+        s_vault.withdraw(msg.sender, token, tokenAmount);
 
         emit Withdraw(msg.sender, token, amountYToken, tokenAmount);
     }
 
-    function depositCollateral(address token, uint256 amount) external {}
+    function depositCollateral(
+        address token,
+        uint256 amount
+    ) external payable revertIfZero(amount) revertIfTokenNotSupported(token) {
+        s_vault.depositCollateral(msg.sender, token, amount);
+    }
 
     function borrow(address token, uint256 amount) external {}
 
     function repay(address token, uint256 amount) external {}
 
-    function liquidate(address collateral, address user, uint256 debtToCover) external {}
+    function liquidate(
+        address collateral,
+        address user,
+        uint256 debtToCover
+    ) external {}
 
     /// @notice Called by the owner to add or remove a supported token
     /// @dev This function is only callable by the Owner
     /// @param token The address of the token
     /// @param isSupported Whether the token is supported or not
     /// @return Returns the address of YToken
-    function setSupporedToken(address token, bool isSupported) public onlyOwner returns (address) {
+    function setSupporedToken(
+        address token,
+        bool isSupported
+    ) public onlyOwner returns (address) {
         if (isSupported) {
-            if (s_tokenToYToken[token] != address(0)) revert Errors.YTokenAlreadySupported(token);
+            if (s_tokenToYToken[token] != address(0))
+                revert Errors.YTokenAlreadySupported(token);
             if (token == EthAddressLib.ethAddress()) {
                 string memory name = "YToken ETH";
                 string memory symbol = "YETH";
                 YToken yToken = new YToken(address(this), token, name, symbol);
                 s_tokenToYToken[token] = address(yToken);
                 s_supportedTokens[token] = isSupported;
+                s_supportedTokensArray.push(EthAddressLib.ethAddress());
                 emit SupportedToken(token, address(yToken), isSupported);
                 return address(yToken);
             } else {
-                string memory name = string.concat("YToken ", IERC20Metadata(address(token)).name());
-                string memory symbol = string.concat("Y", IERC20Metadata(address(token)).symbol());
+                string memory name = string.concat(
+                    "YToken ",
+                    IERC20Metadata(address(token)).name()
+                );
+                string memory symbol = string.concat(
+                    "Y",
+                    IERC20Metadata(address(token)).symbol()
+                );
                 YToken yToken = new YToken(address(this), token, name, symbol);
                 s_tokenToYToken[token] = address(yToken);
                 s_supportedTokens[token] = isSupported;
+                s_supportedTokensArray.push(token);
                 emit SupportedToken(token, address(yToken), isSupported);
                 return address(yToken);
             }
         } else {
             YToken yToken = YToken(s_tokenToYToken[token]);
             s_supportedTokens[token] = isSupported;
+            // TODO figure out how to delete the token from the array
+            // delete s_supportedTokensArray[];
             delete s_tokenToYToken[token];
             emit SupportedToken(token, address(yToken), isSupported);
             return address(yToken);
@@ -226,13 +255,28 @@ contract LendingPool is Ownable(msg.sender) {
     /// @notice Returns the address of the token's corresponding YToken contract
     /// @param token The address of the token
     /// @return The YToken contract address
-    function getYTokenBasedOnToken(address token) public view returns (address) {
+    function getYTokenBasedOnToken(
+        address token
+    ) public view returns (address) {
         return s_tokenToYToken[token];
     }
 
-    function addTokenPriceFeed(address token, address priceFeed) public onlyOwner returns (address, address) {
+    function addTokenPriceFeed(
+        address token,
+        address priceFeed
+    ) public onlyOwner returns (address, address) {
         emit TokenPriceFeedAdded(token, priceFeed);
-        return s_collateralTracker.addTokenPriceFeed(token, priceFeed);
+        return s_vault.addTokenPriceFeed(token, priceFeed);
+    }
+
+    function getNumberOfSupportedTokens() public view returns (uint256) {
+        return s_supportedTokensArray.length;
+    }
+
+    function getSupportedTokenInArray(
+        uint256 index
+    ) public view returns (address) {
+        return s_supportedTokensArray[index];
     }
 
     // @question do we need this function???

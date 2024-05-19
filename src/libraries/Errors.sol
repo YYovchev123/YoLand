@@ -18,7 +18,10 @@ library Errors {
     error onlyLendingPool();
 
     /// @notice yToken: When the invariant of exchangeRate can only increase is broken
-    error ExhangeRateCanOnlyIncrease(uint256 oldExchangeRate, uint256 newExchangeRate);
+    error ExhangeRateCanOnlyIncrease(
+        uint256 oldExchangeRate,
+        uint256 newExchangeRate
+    );
 
     /// @notice yToken: Reverts on address(0)
     error ZeroAddress();
@@ -51,4 +54,7 @@ library Errors {
     error AmountAndValueSentDoNotMatch();
 
     error ValueSendWithNonETHToken();
+
+    /// @notice Vault: Reverts when health factor is broken
+    error BreaksHealthFactor(uint256);
 }
