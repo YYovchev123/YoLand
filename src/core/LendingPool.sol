@@ -7,6 +7,8 @@ import {YToken} from "./YToken.sol";
 import {Errors} from "../libraries/Errors.sol";
 import {EthAddressLib} from "../libraries/EthAddressLib.sol";
 import {Ownable} from "openzeppelin-contracts/contracts/access/Ownable.sol";
+import {ReentrancyGuard} from "openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol";
+import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import {Vault} from "./Vault.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
@@ -19,7 +21,7 @@ import {console} from "forge-std/Test.sol";
 /// @author YovchevYoan
 /// @notice TODO
 /// @dev Responsible for TODO
-contract LendingPool is Ownable(msg.sender) {
+contract LendingPool is Ownable(msg.sender), ReentrancyGuard {
     /*///////////////////////////////////////////////
                         EVENTS
     ///////////////////////////////////////////////*/
@@ -33,23 +35,14 @@ contract LendingPool is Ownable(msg.sender) {
     /// @param token The address of the token
     /// @param yToken The address of the corresponding YToken
     /// @param isSupported Whether or not the token is supported
-    event SupportedToken(
-        address indexed token,
-        address yToken,
-        bool isSupported
-    );
+    event SupportedToken(address indexed token, address yToken, bool isSupported);
 
     /// @notice Emitted when a user withdraws
     /// @param user The user who withdrew
     /// @param token The address of the token
     /// @param amountYToken The amount of yToken burnt
     /// @param tokenAmount The amount of token redeemed by the user
-    event Withdraw(
-        address indexed user,
-        address token,
-        uint256 amountYToken,
-        uint256 tokenAmount
-    );
+    event Withdraw(address indexed user, address token, uint256 amountYToken, uint256 tokenAmount);
 
     /// @notice Emitted when a price feed address is added to token
     /// @param token The address of the token
@@ -74,7 +67,7 @@ contract LendingPool is Ownable(msg.sender) {
     // of its yToken | token => yToken
     mapping(address token => address yToken) private s_tokenToYToken;
     /// @dev Mapping traking the address of the token to a bool
-    // whether the token is supported or not | token => isSupported
+    /// whether the token is supported or not | token => isSupported
     mapping(address token => bool isSupported) private s_supportedTokens;
     /// @dev An array with the supported tokens
     address[] private s_supportedTokensArray;
@@ -87,7 +80,6 @@ contract LendingPool is Ownable(msg.sender) {
     /// @param interestRateModel The address of InterestRateModel contract
     /// @param supportedTokens The initial supported tokens
 
-    /// TODO FIND THE BEST WAY TO PASS THE `PRICE_FEED` ADDRESSES
     constructor(address interestRateModel, address[] memory supportedTokens) {
         s_interestRateModel = InterestRateModel(interestRateModel);
 
@@ -133,16 +125,19 @@ contract LendingPool is Ownable(msg.sender) {
     /// @dev The function reverts if value is sent and the token is not ETH
     /// @param token The address of the token
     /// @param amount The amount of tokens to be lenders
-    function lend(
-        address token,
-        uint256 amount
-    ) external payable revertIfZero(amount) revertIfTokenNotSupported(token) {
-        if (msg.value > 0 && token != EthAddressLib.ethAddress())
+    function lend(address token, uint256 amount)
+        external
+        payable
+        revertIfZero(amount)
+        revertIfTokenNotSupported(token)
+        nonReentrant
+    {
+        if (msg.value > 0 && token != EthAddressLib.ethAddress()) {
             revert Errors.ValueSendWithNonETHToken();
+        }
         YToken yToken = YToken(s_tokenToYToken[token]);
 
-        uint256 mintAmount = (amount * yToken.EXCHANGE_RATE_PRECISION()) /
-            yToken.getExchangeRate();
+        uint256 mintAmount = (amount * yToken.EXCHANGE_RATE_PRECISION()) / yToken.getExchangeRate();
         // @question is there any way for a potential DOS here???
         if (mintAmount == 0) revert Errors.AmountCannotBeZero();
 
@@ -158,17 +153,18 @@ contract LendingPool is Ownable(msg.sender) {
     /// @dev The function burns the provided amount of YToken
     /// @param token The address of the token
     /// @param amountYToken The amount of YTokens provided for withdrawal
-    function withdraw(
-        address token,
-        uint256 amountYToken
-    ) external revertIfZero(amountYToken) revertIfTokenNotSupported(token) {
+    function withdraw(address token, uint256 amountYToken)
+        external
+        revertIfZero(amountYToken)
+        revertIfTokenNotSupported(token)
+        nonReentrant
+    {
         YToken yToken = YToken(s_tokenToYToken[token]);
         if (amountYToken == type(uint256).max) {
             amountYToken = s_vault.getLentDeposited(msg.sender, token);
         }
         // The amount of underlying token to transfer to the user
-        uint256 tokenAmount = (amountYToken * yToken.getExchangeRate()) /
-            yToken.EXCHANGE_RATE_PRECISION();
+        uint256 tokenAmount = (amountYToken * yToken.getExchangeRate()) / yToken.EXCHANGE_RATE_PRECISION();
 
         yToken.burn(msg.sender, amountYToken);
         s_vault.withdraw(msg.sender, token, tokenAmount);
@@ -176,35 +172,35 @@ contract LendingPool is Ownable(msg.sender) {
         emit Withdraw(msg.sender, token, amountYToken, tokenAmount);
     }
 
-    function depositCollateral(
-        address token,
-        uint256 amount
-    ) external payable revertIfZero(amount) revertIfTokenNotSupported(token) {
-        s_vault.depositCollateral(msg.sender, token, amount);
+    function depositCollateral(address token, uint256 amount)
+        external
+        payable
+        revertIfZero(amount)
+        revertIfTokenNotSupported(token)
+        nonReentrant
+    {
+        if (msg.value > 0 && token != EthAddressLib.ethAddress()) {
+            revert Errors.ValueSendWithNonETHToken();
+        }
+        s_vault.depositCollateral{value: msg.value}(msg.sender, token, amount);
     }
 
-    function borrow(address token, uint256 amount) external {}
+    function borrow(address token, uint256 amount) external nonReentrant {}
 
-    function repay(address token, uint256 amount) external {}
+    function repay(address token, uint256 amount) external nonReentrant {}
 
-    function liquidate(
-        address collateral,
-        address user,
-        uint256 debtToCover
-    ) external {}
+    function liquidate(address collateral, address user, uint256 debtToCover) external nonReentrant {}
 
     /// @notice Called by the owner to add or remove a supported token
     /// @dev This function is only callable by the Owner
     /// @param token The address of the token
     /// @param isSupported Whether the token is supported or not
     /// @return Returns the address of YToken
-    function setSupporedToken(
-        address token,
-        bool isSupported
-    ) public onlyOwner returns (address) {
+    function setSupporedToken(address token, bool isSupported) public onlyOwner returns (address) {
         if (isSupported) {
-            if (s_tokenToYToken[token] != address(0))
+            if (s_tokenToYToken[token] != address(0)) {
                 revert Errors.YTokenAlreadySupported(token);
+            }
             if (token == EthAddressLib.ethAddress()) {
                 string memory name = "YToken ETH";
                 string memory symbol = "YETH";
@@ -215,14 +211,8 @@ contract LendingPool is Ownable(msg.sender) {
                 emit SupportedToken(token, address(yToken), isSupported);
                 return address(yToken);
             } else {
-                string memory name = string.concat(
-                    "YToken ",
-                    IERC20Metadata(address(token)).name()
-                );
-                string memory symbol = string.concat(
-                    "Y",
-                    IERC20Metadata(address(token)).symbol()
-                );
+                string memory name = string.concat("YToken ", IERC20Metadata(address(token)).name());
+                string memory symbol = string.concat("Y", IERC20Metadata(address(token)).symbol());
                 YToken yToken = new YToken(address(this), token, name, symbol);
                 s_tokenToYToken[token] = address(yToken);
                 s_supportedTokens[token] = isSupported;
@@ -255,16 +245,11 @@ contract LendingPool is Ownable(msg.sender) {
     /// @notice Returns the address of the token's corresponding YToken contract
     /// @param token The address of the token
     /// @return The YToken contract address
-    function getYTokenBasedOnToken(
-        address token
-    ) public view returns (address) {
+    function getYTokenBasedOnToken(address token) public view returns (address) {
         return s_tokenToYToken[token];
     }
 
-    function addTokenPriceFeed(
-        address token,
-        address priceFeed
-    ) public onlyOwner returns (address, address) {
+    function addTokenPriceFeed(address token, address priceFeed) public onlyOwner returns (address, address) {
         emit TokenPriceFeedAdded(token, priceFeed);
         return s_vault.addTokenPriceFeed(token, priceFeed);
     }
@@ -273,9 +258,7 @@ contract LendingPool is Ownable(msg.sender) {
         return s_supportedTokensArray.length;
     }
 
-    function getSupportedTokenInArray(
-        uint256 index
-    ) public view returns (address) {
+    function getSupportedTokenInArray(uint256 index) public view returns (address) {
         return s_supportedTokensArray[index];
     }
 
