@@ -3,6 +3,7 @@ pragma solidity 0.8.20;
 
 import {Errors} from "../libraries/Errors.sol";
 import {EthAddressLib} from "../libraries/EthAddressLib.sol";
+import {OracleLib} from "../libraries/OracleLib.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {LendingPool} from "../core/LendingPool.sol";
@@ -17,6 +18,7 @@ import {console} from "forge-std/Test.sol";
 /// @dev Responsible for holding deposited tokens
 contract Vault {
     using SafeERC20 for IERC20;
+    using OracleLib for AggregatorV3Interface;
 
     /*///////////////////////////////////////////////
                     STATE VARIABLES
@@ -105,7 +107,7 @@ contract Vault {
     }
 
     // check if this breaks the health factor
-    function redeemCollatral(address user, address token, uint256 amount) external onlyLendingPool {
+    function redeemCollateral(address user, address token, uint256 amount) external onlyLendingPool {
         if (token != EthAddressLib.ethAddress()) {
             s_collateralDeposited[user][token] -= amount;
             IERC20(token).safeTransfer(user, amount);
@@ -167,13 +169,8 @@ contract Vault {
         view
         returns (uint256 totalBorrowedAmountInUsd, uint256 collateralValueInUsd)
     {
-        uint256 numberOfSupportedTokens = LendingPool(s_lendingPool).getNumberOfSupportedTokens();
-        for (uint256 i = 0; i < numberOfSupportedTokens; i++) {
-            address token = LendingPool(s_lendingPool).getSupportedTokenInArray(i);
-            uint256 amount = s_amountBorrowed[user][token];
-            totalBorrowedAmountInUsd += getUsdValue(token, amount);
-        }
-        totalBorrowedAmountInUsd = getAccountCollateralValue(user);
+        totalBorrowedAmountInUsd = getBorrowedAmountValue(user);
+        collateralValueInUsd = getAccountCollateralValue(user);
         return (totalBorrowedAmountInUsd, collateralValueInUsd);
     }
 
@@ -183,6 +180,15 @@ contract Vault {
         returns (uint256)
     {
         return _calculateHealthFactor(totalBorrowedValue, collateralValueInUsd);
+    }
+
+    function getBorrowedAmountValue(address user) public view returns (uint256 totalBorrowedValue) {
+        uint256 numberOfSupportedTokens = LendingPool(s_lendingPool).getNumberOfSupportedTokens();
+        for (uint256 i = 0; i < numberOfSupportedTokens; i++) {
+            address token = LendingPool(s_lendingPool).getSupportedTokenInArray(i);
+            uint256 amount = s_amountBorrowed[user][token];
+            totalBorrowedValue += getUsdValue(token, amount);
+        }
     }
 
     function getAccountCollateralValue(address user) public view returns (uint256 totalCollateralValueInUsd) {
@@ -197,7 +203,7 @@ contract Vault {
 
     function getUsdValue(address token, uint256 amount) public view returns (uint256) {
         AggregatorV3Interface priceFeed = AggregatorV3Interface(s_priceFeeds[token]);
-        (, int256 price,,,) = priceFeed.latestRoundData();
+        int256 price = priceFeed.getChainlinkDataFeedLatestAnswer();
         return ((uint256(price) * ADDITIONAL_FEED_PRECISION) * amount) / PRECISION;
     }
 
@@ -206,12 +212,14 @@ contract Vault {
         return _calculateHealthFactor(totalDscMinted, collateralValueInUsd);
     }
 
+    /// @dev If totalBorrowedValue is equal to 0, uint256 max is returned. This is to prevent division by
+    /// zero and indicate an extremely healthy position.
     function _calculateHealthFactor(uint256 totalBorrowedValue, uint256 collateralValueInUsd)
         internal
         pure
         returns (uint256)
     {
-        if (totalBorrowedValue == 0) return type(uint256).max; // What is this for?
+        if (totalBorrowedValue == 0) return type(uint256).max;
         uint256 collateralAdjustedForThreshold = (collateralValueInUsd * LIQUIDATION_THRESHOLD) / LIQUIDATION_PRECISION;
         return (collateralAdjustedForThreshold * PRECISION) / totalBorrowedValue;
     }
