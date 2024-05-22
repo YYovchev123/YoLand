@@ -22,6 +22,8 @@ import {console} from "forge-std/Test.sol";
 /// @notice TODO
 /// @dev Responsible for TODO
 contract LendingPool is Ownable(msg.sender), ReentrancyGuard {
+    using EnumerableSet for EnumerableSet.AddressSet;
+
     /*///////////////////////////////////////////////
                         EVENTS
     ///////////////////////////////////////////////*/
@@ -63,14 +65,17 @@ contract LendingPool is Ownable(msg.sender), ReentrancyGuard {
     /// @notice Variable used for decimal precision
     uint256 private constant FEE_PRECISION = 1e18;
 
+    /// @notice Bool whether the vault has been initialized or not
+    bool initialized;
+
     /// @dev Mapping traking the address of the token to the address
     // of its yToken | token => yToken
     mapping(address token => address yToken) private s_tokenToYToken;
-    /// @dev Mapping traking the address of the token to a bool
-    /// whether the token is supported or not | token => isSupported
-    mapping(address token => bool isSupported) private s_supportedTokens;
-    /// @dev An array with the supported tokens
-    address[] private s_supportedTokensArray;
+
+    /// @dev An EnumberableSet of Addresses containing all the supported tokens
+    EnumerableSet.AddressSet private s_supportedTokens;
+
+    /// FOR EXAMINATION
 
     /*///////////////////////////////////////////////
                     CONSTRUCTOR
@@ -85,7 +90,7 @@ contract LendingPool is Ownable(msg.sender), ReentrancyGuard {
 
         /// @dev CHECK THIS AND SEE IF IT IS A GOOD IDEA!!!
         for (uint256 i = 0; i < supportedTokens.length; i++) {
-            setSupporedToken(supportedTokens[i], true);
+            addSupportedToken(supportedTokens[i]);
         }
     }
 
@@ -116,7 +121,9 @@ contract LendingPool is Ownable(msg.sender), ReentrancyGuard {
     /// so the protocol does not break
     /// @param vault The Vault address
     function initializeVault(address vault) external onlyOwner {
+        if (initialized) revert Errors.AlreadyInitialized();
         s_vault = Vault(payable(vault));
+        initialized = true;
     }
 
     /// @notice Called by users wanting to lend tokens into the protocol
@@ -191,44 +198,35 @@ contract LendingPool is Ownable(msg.sender), ReentrancyGuard {
 
     function liquidate(address collateral, address user, uint256 debtToCover) external nonReentrant {}
 
-    /// @notice Called by the owner to add or remove a supported token
-    /// @dev This function is only callable by the Owner
-    /// @param token The address of the token
-    /// @param isSupported Whether the token is supported or not
-    /// @return Returns the address of YToken
-    function setSupporedToken(address token, bool isSupported) public onlyOwner returns (address) {
-        if (isSupported) {
-            if (s_tokenToYToken[token] != address(0)) {
-                revert Errors.YTokenAlreadySupported(token);
-            }
-            if (token == EthAddressLib.ethAddress()) {
-                string memory name = "YToken ETH";
-                string memory symbol = "YETH";
-                YToken yToken = new YToken(address(this), token, name, symbol);
-                s_tokenToYToken[token] = address(yToken);
-                s_supportedTokens[token] = isSupported;
-                s_supportedTokensArray.push(EthAddressLib.ethAddress());
-                emit SupportedToken(token, address(yToken), isSupported);
-                return address(yToken);
-            } else {
-                string memory name = string.concat("YToken ", IERC20Metadata(address(token)).name());
-                string memory symbol = string.concat("Y", IERC20Metadata(address(token)).symbol());
-                YToken yToken = new YToken(address(this), token, name, symbol);
-                s_tokenToYToken[token] = address(yToken);
-                s_supportedTokens[token] = isSupported;
-                s_supportedTokensArray.push(token);
-                emit SupportedToken(token, address(yToken), isSupported);
-                return address(yToken);
-            }
+    function addSupportedToken(address token) public onlyOwner returns (address) {
+        if (s_tokenToYToken[token] != address(0)) {
+            revert Errors.YTokenAlreadySupported(token);
+        }
+        if (token == EthAddressLib.ethAddress()) {
+            string memory name = "YToken ETH";
+            string memory symbol = "YETH";
+            YToken yToken = new YToken(address(this), token, name, symbol);
+            s_tokenToYToken[token] = address(yToken);
+            s_supportedTokens.add(token);
+            emit SupportedToken(token, address(yToken), true);
+            return address(yToken);
         } else {
-            YToken yToken = YToken(s_tokenToYToken[token]);
-            s_supportedTokens[token] = isSupported;
-            // TODO figure out how to delete the token from the array
-            // delete s_supportedTokensArray[];
-            delete s_tokenToYToken[token];
-            emit SupportedToken(token, address(yToken), isSupported);
+            string memory name = string.concat("YToken ", IERC20Metadata(address(token)).name());
+            string memory symbol = string.concat("Y", IERC20Metadata(address(token)).symbol());
+            YToken yToken = new YToken(address(this), token, name, symbol);
+            s_tokenToYToken[token] = address(yToken);
+            s_supportedTokens.add(token);
+            emit SupportedToken(token, address(yToken), true);
             return address(yToken);
         }
+    }
+
+    function removeSupportedToken(address token) public onlyOwner returns (address) {
+        YToken yToken = YToken(s_tokenToYToken[token]);
+        s_supportedTokens.remove(token);
+        delete s_tokenToYToken[token];
+        emit SupportedToken(token, address(yToken), false);
+        return address(yToken);
     }
 
     /*///////////////////////////////////////////////
@@ -239,7 +237,7 @@ contract LendingPool is Ownable(msg.sender), ReentrancyGuard {
     /// @param token The address of the token
     /// @return Is token supported or not
     function isSupportedToken(address token) public view returns (bool) {
-        return s_supportedTokens[token];
+        return s_supportedTokens.contains(token);
     }
 
     /// @notice Returns the address of the token's corresponding YToken contract
@@ -255,11 +253,11 @@ contract LendingPool is Ownable(msg.sender), ReentrancyGuard {
     }
 
     function getNumberOfSupportedTokens() public view returns (uint256) {
-        return s_supportedTokensArray.length;
+        return s_supportedTokens.length();
     }
 
     function getSupportedTokenInArray(uint256 index) public view returns (address) {
-        return s_supportedTokensArray[index];
+        return s_supportedTokens.at(index);
     }
 
     // @question do we need this function???

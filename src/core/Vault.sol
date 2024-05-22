@@ -145,11 +145,11 @@ contract Vault {
         return s_lentDeposited[user][token];
     }
 
-    function liqudidate() external onlyLendingPool {}
+    function liqudidate(address account) external onlyLendingPool {}
 
     // CHECK HOW TO MAKE THIS CONTRACT WORK!!!
 
-    function getHealthFactor() external returns (uint256) {
+    function getHealthFactor() external view returns (uint256) {
         return _healthFactor(msg.sender);
     }
 
@@ -201,7 +201,7 @@ contract Vault {
         return ((uint256(price) * ADDITIONAL_FEED_PRECISION) * amount) / PRECISION;
     }
 
-    function _healthFactor(address user) internal returns (uint256) {
+    function _healthFactor(address user) internal view returns (uint256) {
         (uint256 totalDscMinted, uint256 collateralValueInUsd) = _getAccountInformation(user);
         return _calculateHealthFactor(totalDscMinted, collateralValueInUsd);
     }
@@ -216,7 +216,7 @@ contract Vault {
         return (collateralAdjustedForThreshold * PRECISION) / totalBorrowedValue;
     }
 
-    function _revertIfHealthFactorIsBroken(address user) internal {
+    function _revertIfHealthFactorIsBroken(address user) internal view {
         uint256 userHealthFactor = _healthFactor(user);
         if (userHealthFactor < MIN_HEALTH_FACTOR) {
             revert Errors.BreaksHealthFactor(userHealthFactor);

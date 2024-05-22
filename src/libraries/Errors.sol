@@ -18,10 +18,7 @@ library Errors {
     error onlyLendingPool();
 
     /// @notice yToken: When the invariant of exchangeRate can only increase is broken
-    error ExhangeRateCanOnlyIncrease(
-        uint256 oldExchangeRate,
-        uint256 newExchangeRate
-    );
+    error ExhangeRateCanOnlyIncrease(uint256 oldExchangeRate, uint256 newExchangeRate);
 
     /// @notice yToken: Reverts on address(0)
     error ZeroAddress();
@@ -46,6 +43,9 @@ library Errors {
 
     /// @notice LendingPool: Reverts if a deposit fails
     error DepositFailed();
+
+    /// @notice LendingPool: Reverts when initializedVault has already been called
+    error AlreadyInitialized();
 
     /// @notice Vault: Reverts when an ERC20 transfer is called with msg.vaule > 0
     error SendingETHWithERC20Transfer();
