@@ -14,7 +14,7 @@ library Errors {
     /// @notice TokenContract: When a user tries to transfer from an amount bigger than the allowance
     error InsufficientAllowance();
 
-    /// @notice yToken, Vault: When function is not called by the lending pool
+    /// @notice yToken, LPManager: When function is not called by the lending pool
     error onlyLendingPool();
 
     /// @notice yToken: When the invariant of exchangeRate can only increase is broken
@@ -38,23 +38,29 @@ library Errors {
     /// @notice LendingPool: Reverts if the provided token does not have its YToken configured
     error YTokenNotConfigured();
 
-    /// @notice LendingPool, Vault: Reverts if a transfer fails
+    /// @notice LendingPool, LPManager: Reverts if a transfer fails
     error TransferFailed();
 
     /// @notice LendingPool: Reverts if a deposit fails
     error DepositFailed();
 
-    /// @notice LendingPool: Reverts when initializedVault has already been called
+    /// @notice LendingPool: Reverts when initializedLPManager has already been called
     error AlreadyInitialized();
 
-    /// @notice Vault: Reverts when an ERC20 transfer is called with msg.vaule > 0
+    /// @notice LPManager: Reverts when an ERC20 transfer is called with msg.vaule > 0
     error SendingETHWithERC20Transfer();
 
-    /// @notice Vault: Reverts when the amount and the provided value do not match
+    /// @notice LPManager: Reverts when the amount and the provided value do not match
     error AmountAndValueSentDoNotMatch();
 
     error ValueSendWithNonETHToken();
 
-    /// @notice Vault: Reverts when health factor is broken
+    /// @notice LPManager: Reverts when health factor is broken
     error BreaksHealthFactor(uint256);
+
+    /// @notice LPManager: Reverts if the `liquidate` function is called on a healthy account
+    error HealthFactorOk();
+
+    /// @notice LPManager: Reverts when there is not enough collateral to be seized from the borrower
+    error NotEnoughCollateralToSeize();
 }

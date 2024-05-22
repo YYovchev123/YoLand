@@ -9,7 +9,7 @@ import {EthAddressLib} from "../libraries/EthAddressLib.sol";
 import {Ownable} from "openzeppelin-contracts/contracts/access/Ownable.sol";
 import {ReentrancyGuard} from "openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol";
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
-import {Vault} from "./Vault.sol";
+import {LPManager} from "./LPManager.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {InterestRateModel} from "./InterestRateModel.sol";
@@ -55,17 +55,12 @@ contract LendingPool is Ownable(msg.sender), ReentrancyGuard {
                     STATE VARIABLES
     ///////////////////////////////////////////////*/
 
-    /// @notice The vault in which tokens are stored
-    Vault private s_vault;
+    /// @notice The LPManager in which tokens are stored
+    LPManager private s_lpManager;
     /// @notice The interest rate model contract
     InterestRateModel private s_interestRateModel;
 
-    /// @notice Fee parameter: 0.03 %
-    uint256 private constant FEE = 3e15;
-    /// @notice Variable used for decimal precision
-    uint256 private constant FEE_PRECISION = 1e18;
-
-    /// @notice Bool whether the vault has been initialized or not
+    /// @notice Bool whether the LPManager has been initialized or not
     bool initialized;
 
     /// @dev Mapping traking the address of the token to the address
@@ -81,10 +76,9 @@ contract LendingPool is Ownable(msg.sender), ReentrancyGuard {
                     CONSTRUCTOR
     ///////////////////////////////////////////////*/
 
-    /// @notice Constructor: sets the vault address and the initial supported tokens
+    /// @notice Constructor: sets the InterestRateModel address and the initial supported tokens
     /// @param interestRateModel The address of InterestRateModel contract
     /// @param supportedTokens The initial supported tokens
-
     constructor(address interestRateModel, address[] memory supportedTokens) {
         s_interestRateModel = InterestRateModel(interestRateModel);
 
@@ -116,13 +110,13 @@ contract LendingPool is Ownable(msg.sender), ReentrancyGuard {
                     EXTERNAL FUCTIONS
     ///////////////////////////////////////////////*/
 
-    /// @notice This function sets up the Vault contract
+    /// @notice This function sets up the LPManager contract
     /// @dev This function will be called right after contract deployment
     /// so the protocol does not break
-    /// @param vault The Vault address
-    function initializeVault(address vault) external onlyOwner {
+    /// @param lpManager The LPManager address
+    function initializesLPManager(address lpManager) external onlyOwner {
         if (initialized) revert Errors.AlreadyInitialized();
-        s_vault = Vault(payable(vault));
+        s_lpManager = LPManager(payable(lpManager));
         initialized = true;
     }
 
@@ -150,7 +144,7 @@ contract LendingPool is Ownable(msg.sender), ReentrancyGuard {
 
         yToken.mint(msg.sender, mintAmount);
 
-        s_vault.lend{value: msg.value}(token, msg.sender, amount);
+        s_lpManager.lend{value: msg.value}(token, msg.sender, amount);
         emit Deposit(msg.sender, amount);
     }
 
@@ -168,13 +162,13 @@ contract LendingPool is Ownable(msg.sender), ReentrancyGuard {
     {
         YToken yToken = YToken(s_tokenToYToken[token]);
         if (amountYToken == type(uint256).max) {
-            amountYToken = s_vault.getLentDeposited(msg.sender, token);
+            amountYToken = s_lpManager.getLentDeposited(msg.sender, token);
         }
         // The amount of underlying token to transfer to the user
         uint256 tokenAmount = (amountYToken * yToken.getExchangeRate()) / yToken.EXCHANGE_RATE_PRECISION();
 
         yToken.burn(msg.sender, amountYToken);
-        s_vault.withdraw(msg.sender, token, tokenAmount);
+        s_lpManager.withdraw(msg.sender, token, tokenAmount);
 
         emit Withdraw(msg.sender, token, amountYToken, tokenAmount);
     }
@@ -189,7 +183,7 @@ contract LendingPool is Ownable(msg.sender), ReentrancyGuard {
         if (msg.value > 0 && token != EthAddressLib.ethAddress()) {
             revert Errors.ValueSendWithNonETHToken();
         }
-        s_vault.depositCollateral{value: msg.value}(msg.sender, token, amount);
+        s_lpManager.depositCollateral{value: msg.value}(msg.sender, token, amount);
     }
 
     function borrow(address token, uint256 amount) external nonReentrant {}
@@ -249,7 +243,7 @@ contract LendingPool is Ownable(msg.sender), ReentrancyGuard {
 
     function addTokenPriceFeed(address token, address priceFeed) public onlyOwner returns (address, address) {
         emit TokenPriceFeedAdded(token, priceFeed);
-        return s_vault.addTokenPriceFeed(token, priceFeed);
+        return s_lpManager.addTokenPriceFeed(token, priceFeed);
     }
 
     function getNumberOfSupportedTokens() public view returns (uint256) {

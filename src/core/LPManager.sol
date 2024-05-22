@@ -12,13 +12,21 @@ import {AggregatorV3Interface} from "@chainlink/contracts/src/v0.8/interfaces/Ag
 // REMOVE AFTER TESTING
 import {console} from "forge-std/Test.sol";
 
-/// @title Vault
+/// @title LPManager
 /// @author YovchevYoan
 /// @notice TODO
 /// @dev Responsible for holding deposited tokens
-contract Vault {
+contract LPManager {
     using SafeERC20 for IERC20;
     using OracleLib for AggregatorV3Interface;
+
+    event Liquidation(
+        address borrower,
+        address liquidator,
+        uint256 debtToCover,
+        uint256 totalCollateralToRedeem,
+        address collateralToken
+    );
 
     /*///////////////////////////////////////////////
                     STATE VARIABLES
@@ -31,6 +39,10 @@ contract Vault {
     uint256 private constant PRECISION = 1e18;
     uint256 private constant ADDITIONAL_FEED_PRECISION = 1e10;
     uint256 private constant FEED_PRECISION = 1e8;
+    /// @notice Fee parameter: 0.03 %
+    uint256 private constant FEE = 3e15;
+    /// @notice Variable used for decimal precision
+    uint256 private constant FEE_PRECISION = 1e18;
 
     /// @notice The address of the lendingPool
     address private s_lendingPool;
@@ -74,7 +86,7 @@ contract Vault {
                 EXTERNAL FUNCTIONS
     ///////////////////////////////////////////////*/
 
-    /// @notice Transfers the deposited tokens to this Vault contract
+    /// @notice Transfers the deposited tokens to this LPManager contract
     /// @param token The address of the token
     /// @param user The address of the user
     /// @param amount The amount deposited
@@ -119,7 +131,7 @@ contract Vault {
         }
     }
 
-    /// @notice Transfers lent tokens from the Vault contract to the user
+    /// @notice Transfers lent tokens from the LPManager contract to the user
     /// @param user The address of the user
     /// @param token The address of the token
     /// @param amount The amount to be transfered
@@ -147,7 +159,38 @@ contract Vault {
         return s_lentDeposited[user][token];
     }
 
-    function liqudidate(address account) external onlyLendingPool {}
+    /// @notice Function to liquidate a user who has broken the protocol's health factor
+    /// @dev Liquidator repays a portion of the borrower's debt and, in return, receives a portion of
+    /// the borrower's collateral at a discount.
+    /// @param user The user who's position is breaks the protocol health factor
+    /// @param debtToken The address of the token who the liquidator is going to repay
+    /// @param debtToCover The amount of debtToken send to conver user's debt
+    /// @param collateralToken The address of the token that the liquidator is going to receive
+    function liqudidate(address user, address debtToken, uint256 debtToCover, address collateralToken)
+        external
+        onlyLendingPool
+    {
+        uint256 startingUserHealthFactor = _healthFactor(user);
+        if (startingUserHealthFactor >= MIN_HEALTH_FACTOR) revert Errors.HealthFactorOk();
+
+        uint256 tokenAmountFromDebtCovered = getTokenAmountFromUsd(collateralToken, debtToCover);
+
+        uint256 bonusCollateral = (tokenAmountFromDebtCovered * LIQUIDATION_BONUS) / LIQUIDATION_PRECISION;
+        uint256 totalCollateralToRedeem = tokenAmountFromDebtCovered + bonusCollateral;
+
+        // question Is there a possibility where the user in unliquidatable because of a bug on this line???
+        uint256 borrowerCollateral = s_collateralDeposited[user][collateralToken];
+        if (borrowerCollateral < totalCollateralToRedeem) revert Errors.NotEnoughCollateralToSeize();
+
+        s_amountBorrowed[user][debtToken] -= debtToCover;
+        s_collateralDeposited[user][collateralToken] -= totalCollateralToRedeem;
+
+        IERC20(debtToken).safeTransferFrom(msg.sender, address(this), debtToCover);
+
+        IERC20(collateralToken).safeTransfer(msg.sender, totalCollateralToRedeem);
+
+        emit Liquidation(user, msg.sender, debtToCover, totalCollateralToRedeem, collateralToken);
+    }
 
     // CHECK HOW TO MAKE THIS CONTRACT WORK!!!
 
@@ -207,9 +250,15 @@ contract Vault {
         return ((uint256(price) * ADDITIONAL_FEED_PRECISION) * amount) / PRECISION;
     }
 
+    function getTokenAmountFromUsd(address token, uint256 usdAmountInWei) public view returns (uint256) {
+        AggregatorV3Interface priceFeed = AggregatorV3Interface(s_priceFeeds[token]);
+        int256 price = priceFeed.getChainlinkDataFeedLatestAnswer();
+        return (usdAmountInWei * PRECISION) / (uint256(price) * ADDITIONAL_FEED_PRECISION);
+    }
+
     function _healthFactor(address user) internal view returns (uint256) {
-        (uint256 totalDscMinted, uint256 collateralValueInUsd) = _getAccountInformation(user);
-        return _calculateHealthFactor(totalDscMinted, collateralValueInUsd);
+        (uint256 totalBorrowedValue, uint256 collateralValueInUsd) = _getAccountInformation(user);
+        return _calculateHealthFactor(totalBorrowedValue, collateralValueInUsd);
     }
 
     /// @dev If totalBorrowedValue is equal to 0, uint256 max is returned. This is to prevent division by

@@ -1,1 +1,0 @@
-1. You can define an interface for the token contract's functions that the lending pool contract expects to interact with. When initializing the lending pool, you pass an instance of the token contract that adheres to this interface. This provides more flexibility and allows you to interact with different token contracts that implement the same interface.
