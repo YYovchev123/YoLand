@@ -21,6 +21,7 @@ import {console} from "forge-std/Test.sol";
 /// @author YovchevYoan
 /// @notice TODO
 /// @dev Responsible for TODO
+/// TODO !!! HANDLE FEES !!!
 contract LendingPool is Ownable(msg.sender), ReentrancyGuard {
     using EnumerableSet for EnumerableSet.AddressSet;
 
@@ -186,10 +187,13 @@ contract LendingPool is Ownable(msg.sender), ReentrancyGuard {
         s_lpManager.depositCollateral{value: msg.value}(msg.sender, token, amount);
     }
 
+    // TODO
     function borrow(address token, uint256 amount) external nonReentrant {}
 
+    // TODO
     function repay(address token, uint256 amount) external nonReentrant {}
 
+    // TODO
     function liquidate(address user, address debtToken, uint256 debtToCover, address collateralToken)
         external
         nonReentrant

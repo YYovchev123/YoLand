@@ -207,6 +207,15 @@ contract LPManager {
         emit Liquidation(user, msg.sender, debtToCover, totalCollateralToRedeem, collateralToken);
     }
 
+    // function getCalculatedFee(address token, uint256 amount) public view returns (uint256 fee) {
+    //     //slither-disable-next-line divide-before-multiply
+    //     // @audit-question is this correct?
+    //     // @audit-high if the fee is going to be in the token, then the value should reflect that
+    //     uint256 valueOfBorrowedToken = (amount * getPriceInWeth(address(token))) / s_feePrecision;
+    //     //slither-disable-next-line divide-before-multiply
+    //     fee = (valueOfBorrowedToken * s_flashLoanFee) / s_feePrecision;
+    // }
+
     // CHECK HOW TO MAKE THIS CONTRACT WORK!!!
 
     function getHealthFactor() external view returns (uint256) {
