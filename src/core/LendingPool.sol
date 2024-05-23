@@ -190,7 +190,10 @@ contract LendingPool is Ownable(msg.sender), ReentrancyGuard {
 
     function repay(address token, uint256 amount) external nonReentrant {}
 
-    function liquidate(address collateral, address user, uint256 debtToCover) external nonReentrant {}
+    function liquidate(address user, address debtToken, uint256 debtToCover, address collateralToken)
+        external
+        nonReentrant
+    {}
 
     function addSupportedToken(address token) public onlyOwner returns (address) {
         if (s_tokenToYToken[token] != address(0)) {

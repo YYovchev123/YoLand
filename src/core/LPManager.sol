@@ -129,6 +129,7 @@ contract LPManager {
             (bool success,) = payable(user).call{value: amount}("");
             if (!success) revert Errors.TransferFailed();
         }
+        _revertIfHealthFactorIsBroken(user);
     }
 
     /// @notice Transfers lent tokens from the LPManager contract to the user
@@ -145,6 +146,7 @@ contract LPManager {
             (bool success,) = payable(user).call{value: amount}("");
             if (!success) revert Errors.TransferFailed();
         }
+        _revertIfHealthFactorIsBroken(user);
     }
 
     // move this to appropriate spot
@@ -166,12 +168,16 @@ contract LPManager {
     /// @param debtToken The address of the token who the liquidator is going to repay
     /// @param debtToCover The amount of debtToken send to conver user's debt
     /// @param collateralToken The address of the token that the liquidator is going to receive
-    function liqudidate(address user, address debtToken, uint256 debtToCover, address collateralToken)
+    function liquidate(address user, address debtToken, uint256 debtToCover, address collateralToken)
         external
+        payable
         onlyLendingPool
     {
         uint256 startingUserHealthFactor = _healthFactor(user);
         if (startingUserHealthFactor >= MIN_HEALTH_FACTOR) revert Errors.HealthFactorOk();
+        if (debtToken != EthAddressLib.ethAddress() && msg.value > 0) {
+            revert Errors.SendingETHWithERC20Transfer();
+        }
 
         uint256 tokenAmountFromDebtCovered = getTokenAmountFromUsd(collateralToken, debtToCover);
 
@@ -185,9 +191,18 @@ contract LPManager {
         s_amountBorrowed[user][debtToken] -= debtToCover;
         s_collateralDeposited[user][collateralToken] -= totalCollateralToRedeem;
 
-        IERC20(debtToken).safeTransferFrom(msg.sender, address(this), debtToCover);
+        if (debtToken == EthAddressLib.ethAddress()) {
+            if (msg.value != debtToCover) revert Errors.AmountAndValueSentDoNotMatch();
+        } else {
+            IERC20(debtToken).safeTransferFrom(msg.sender, address(this), debtToCover);
+        }
 
-        IERC20(collateralToken).safeTransfer(msg.sender, totalCollateralToRedeem);
+        if (collateralToken == EthAddressLib.ethAddress()) {
+            (bool success,) = msg.sender.call{value: totalCollateralToRedeem}("");
+            if (!success) revert Errors.TransferFailed();
+        } else {
+            IERC20(collateralToken).safeTransfer(msg.sender, totalCollateralToRedeem);
+        }
 
         emit Liquidation(user, msg.sender, debtToCover, totalCollateralToRedeem, collateralToken);
     }
