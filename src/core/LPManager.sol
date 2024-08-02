@@ -45,11 +45,21 @@ contract LPManager {
 
     /// @dev Mapping traking user's deposited collateral
     // user => token => amount
-    mapping(address user => mapping(address token => uint256 amount)) s_collateralDeposited;
+    mapping(address user => mapping(address token => uint256 amount))
+        private s_collateralDeposited;
 
     /// @dev Mapping traking user's borrow amount
     // user => token => amount
-    mapping(address user => mapping(address token => uint256 amount)) s_amountBorrowed;
+    mapping(address user => mapping(address token => uint256 amount))
+        private s_amountBorrowed;
+
+    /// @dev Mapping tracking total lent amount of a specified token
+    // token => amount
+    mapping(address token => uint256 amount) private s_totalLentAmount;
+
+    /// @dev Mapping tracking total collateral amount of a specified token
+    // token => amount
+    mapping(address token => uint256 amount) private s_totalCollateralAmount;
 
     /// @dev Mapping tracking token to price feed
     // token => price feed
@@ -92,49 +102,15 @@ contract LPManager {
             if (msg.value != 0) revert Errors.SendingETHWithERC20Transfer();
 
             s_lentDeposited[user][token] += amount;
+            s_totalLentAmount[token] += amount;
             IERC20(token).safeTransferFrom(user, address(this), amount);
         } else {
             if (msg.value != amount) {
                 revert Errors.AmountAndValueSentDoNotMatch();
             }
             s_lentDeposited[user][EthAddressLib.ethAddress()] += amount;
+            s_totalLentAmount[EthAddressLib.ethAddress()] += amount;
         }
-    }
-
-    function depositCollateral(
-        address user,
-        address token,
-        uint256 amount
-    ) external payable onlyLendingPool {
-        if (token != EthAddressLib.ethAddress()) {
-            if (msg.value != 0) revert Errors.SendingETHWithERC20Transfer();
-
-            s_collateralDeposited[user][token] += amount;
-            IERC20(token).safeTransferFrom(user, address(this), amount);
-        } else {
-            if (msg.value != amount) {
-                revert Errors.AmountAndValueSentDoNotMatch();
-            }
-            s_collateralDeposited[user][EthAddressLib.ethAddress()] += amount;
-        }
-    }
-
-    // check if this breaks the health factor
-    function redeemCollateral(
-        address user,
-        address token,
-        uint256 amount
-    ) external onlyLendingPool {
-        if (token != EthAddressLib.ethAddress()) {
-            s_collateralDeposited[user][token] -= amount;
-            IERC20(token).safeTransfer(user, amount);
-        } else {
-            s_collateralDeposited[user][EthAddressLib.ethAddress()] -= amount;
-            // @question Check for reentrancy
-            (bool success, ) = payable(user).call{value: amount}("");
-            if (!success) revert Errors.TransferFailed();
-        }
-        _revertIfHealthFactorIsBroken(user);
     }
 
     /// @notice Transfers lent tokens from the LPManager contract to the user
@@ -148,9 +124,11 @@ contract LPManager {
     ) external onlyLendingPool {
         if (token != EthAddressLib.ethAddress()) {
             s_lentDeposited[user][token] -= amount;
+            s_totalLentAmount[token] -= amount;
             IERC20(token).safeTransfer(user, amount);
         } else {
             s_lentDeposited[user][EthAddressLib.ethAddress()] -= amount;
+            s_totalLentAmount[EthAddressLib.ethAddress()] -= amount;
             // @question Check for reentrancy
             (bool success, ) = payable(user).call{value: amount}("");
             if (!success) revert Errors.TransferFailed();
@@ -158,6 +136,71 @@ contract LPManager {
         // q Is this necessary?
         // _revertIfHealthFactorIsBroken(user);
     }
+
+    function depositCollateral(
+        address user,
+        address token,
+        uint256 amount
+    ) external payable onlyLendingPool {
+        if (token != EthAddressLib.ethAddress()) {
+            if (msg.value != 0) revert Errors.SendingETHWithERC20Transfer();
+
+            s_collateralDeposited[user][token] += amount;
+            s_totalCollateralAmount[token] += amount;
+            IERC20(token).safeTransferFrom(user, address(this), amount);
+        } else {
+            if (msg.value != amount) {
+                revert Errors.AmountAndValueSentDoNotMatch();
+            }
+            s_collateralDeposited[user][EthAddressLib.ethAddress()] += amount;
+            s_totalCollateralAmount[EthAddressLib.ethAddress()] += amount;
+        }
+    }
+
+    // check if this breaks the health factor
+    function redeemCollateral(
+        address user,
+        address token,
+        uint256 amount
+    ) external onlyLendingPool {
+        if (token != EthAddressLib.ethAddress()) {
+            s_collateralDeposited[user][token] -= amount;
+            s_totalCollateralAmount[token] -= amount;
+            IERC20(token).safeTransfer(user, amount);
+        } else {
+            s_collateralDeposited[user][EthAddressLib.ethAddress()] -= amount;
+            s_totalCollateralAmount[EthAddressLib.ethAddress()] -= amount;
+            // @question Check for reentrancy
+            (bool success, ) = payable(user).call{value: amount}("");
+            if (!success) revert Errors.TransferFailed();
+        }
+        _revertIfHealthFactorIsBroken(user);
+    }
+
+    function borrow(
+        address user,
+        address token,
+        uint256 amount
+    ) external onlyLendingPool {
+        if (token != EthAddressLib.ethAddress()) {
+            s_amountBorrowed[msg.sender][token] += amount;
+            IERC20(token).safeTransfer(user, amount);
+        } else {
+            s_amountBorrowed[msg.sender][token] += amount;
+            (bool success, ) = payable(user).call{value: amount}("");
+            if (!success) revert Errors.TransferFailed();
+        }
+        _revertIfHealthFactorIsBroken(user);
+    }
+
+    // TODO
+    // function repay(
+    //     address user,
+    //     address token,
+    //     uint256 amount
+    // ) external onlyLendingPool {
+    //     _revertIfHealthFactorIsBroken(user);
+    // }
 
     // move this to appropriate spot
     /*///////////////////////////////////////////////
@@ -375,6 +418,53 @@ contract LPManager {
         address token
     ) public view returns (uint256) {
         return s_collateralDeposited[user][token];
+    }
+
+    function getAccountLentBalance(
+        address user,
+        address token
+    ) public view returns (uint256) {
+        return s_lentDeposited[user][token];
+    }
+
+    function getAccountBorrowedAmount(
+        address user,
+        address token
+    ) public view returns (uint256) {
+        return s_amountBorrowed[user][token];
+    }
+
+    function getAccountLentBalanceForTokenInUsd(
+        address user,
+        address token
+    ) public view returns (uint256) {
+        uint256 amount = s_lentDeposited[user][token];
+        return getUsdValue(token, amount);
+    }
+
+    function getAccountTotalLentBalanceInUsd(
+        address user
+    ) public view returns (uint256 totalLentBalanceInUsd) {
+        uint256 numberOfSupportedTokens = LendingPool(s_lendingPool)
+            .getNumberOfSupportedTokens();
+        for (uint256 i = 0; i < numberOfSupportedTokens; i++) {
+            address token = LendingPool(s_lendingPool).getSupportedTokenInArray(
+                i
+            );
+            uint256 amount = s_lentDeposited[user][token];
+            totalLentBalanceInUsd += getUsdValue(token, amount);
+        }
+        return totalLentBalanceInUsd;
+    }
+
+    function getTotalLendBalance(address token) public view returns (uint256) {
+        return s_totalLentAmount[token];
+    }
+
+    function getTotalCollateralBalance(
+        address token
+    ) public view returns (uint256) {
+        return s_totalCollateralAmount[token];
     }
 
     function addTokenPriceFeed(

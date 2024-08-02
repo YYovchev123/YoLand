@@ -146,6 +146,13 @@ contract LendingPool is Ownable(msg.sender), ReentrancyGuard {
         _;
     }
 
+    modifier revertIfTokenEthAndMsgValueZero(address token) {
+        if (msg.value > 0 && token != EthAddressLib.ethAddress()) {
+            revert Errors.ValueSendWithNonETHToken();
+        }
+        _;
+    }
+
     /*///////////////////////////////////////////////
                     EXTERNAL FUCTIONS
     ///////////////////////////////////////////////*/
@@ -175,10 +182,8 @@ contract LendingPool is Ownable(msg.sender), ReentrancyGuard {
         revertIfZero(amount)
         revertIfTokenNotSupported(token)
         nonReentrant
+        revertIfTokenEthAndMsgValueZero(token)
     {
-        if (msg.value > 0 && token != EthAddressLib.ethAddress()) {
-            revert Errors.ValueSendWithNonETHToken();
-        }
         YToken yToken = YToken(s_tokenToYToken[token]);
 
         uint256 mintAmount = (amount * yToken.EXCHANGE_RATE_PRECISION()) /
@@ -230,10 +235,8 @@ contract LendingPool is Ownable(msg.sender), ReentrancyGuard {
         revertIfZero(amount)
         revertIfTokenNotSupported(token)
         nonReentrant
+        revertIfTokenEthAndMsgValueZero(token)
     {
-        if (msg.value > 0 && token != EthAddressLib.ethAddress()) {
-            revert Errors.ValueSendWithNonETHToken();
-        }
         s_lpManager.depositCollateral{value: msg.value}(
             msg.sender,
             token,
@@ -243,12 +246,27 @@ contract LendingPool is Ownable(msg.sender), ReentrancyGuard {
     }
 
     // TODO
-    function borrow(address token, uint256 amount) external nonReentrant {
+    function borrow(
+        address token,
+        uint256 amount
+    )
+        external
+        revertIfZero(amount)
+        revertIfTokenNotSupported(token)
+        nonReentrant
+    {
         // Check to see after all the logic that the user's health factor is ok
+        s_lpManager.borrow(msg.sender, token, amount);
+        emit Borrow(msg.sender, token, amount);
     }
 
     // TODO
-    function repay(address token, uint256 amount) external nonReentrant {}
+    function repay(
+        address token,
+        uint256 amount
+    ) external payable nonReentrant revertIfTokenEthAndMsgValueZero(token) {
+        // update YToken exchange rate here!
+    }
 
     // TODO
     function liquidate(
@@ -300,6 +318,14 @@ contract LendingPool is Ownable(msg.sender), ReentrancyGuard {
         emit SupportedToken(token, address(yToken), false);
     }
 
+    function addTokenPriceFeed(
+        address token,
+        address priceFeed
+    ) public onlyOwner returns (address, address) {
+        emit TokenPriceFeedAdded(token, priceFeed);
+        return s_lpManager.addTokenPriceFeed(token, priceFeed);
+    }
+
     /*///////////////////////////////////////////////
                 PUBLIC VIEW FUCTIONS
     ///////////////////////////////////////////////*/
@@ -320,13 +346,9 @@ contract LendingPool is Ownable(msg.sender), ReentrancyGuard {
         return s_tokenToYToken[token];
     }
 
-    function addTokenPriceFeed(
-        address token,
-        address priceFeed
-    ) public onlyOwner returns (address, address) {
-        emit TokenPriceFeedAdded(token, priceFeed);
-        return s_lpManager.addTokenPriceFeed(token, priceFeed);
-    }
+    // function getPriceOfToken(address token) public view returns(uint256) {
+    //     return lpManager.getPriceOfToken(token);
+    // }
 
     function getNumberOfSupportedTokens() public view returns (uint256) {
         return s_supportedTokens.length();

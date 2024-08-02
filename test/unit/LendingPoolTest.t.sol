@@ -1,218 +1,403 @@
-// // SPDX-License-Identifier: SEE LICENSE IN LICENSE
-// pragma solidity 0.8.20;
+// SPDX-License-Identifier: SEE LICENSE IN LICENSE
+pragma solidity 0.8.20;
 
-// import {Test, console} from "forge-std/Test.sol";
-// import {InterestRateModel} from "../../src/core/InterestRateModel.sol";
-// import {YToken} from "../../src/core/YToken.sol";
-// import {LendingPool} from "../../src/core/LendingPool.sol";
-// import {ERC20Mock} from "../mocks/UnderLyingAssetMock.sol";
-// import {Vault} from "../../src/core/Vault.sol";
-// import {Errors} from "../../src/libraries/Errors.sol";
+import {Test, console} from "forge-std/Test.sol";
 
-// contract LendingPoolTest is Test {
-//     LendingPool public lendingPool;
-//     InterestRateModel public interestRateModel;
-//     Vault public vault;
+import {LendingPool} from "../../src/core/LendingPool.sol";
+import {LPManager} from "../../src/core/LPManager.sol";
+import {InterestRateModel} from "../../src/core/InterestRateModel.sol";
+import {YToken} from "../../src/core/YToken.sol";
 
-//     ERC20Mock public WETH;
-//     ERC20Mock public DAI;
-//     address public constant ETH = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
+import {Errors} from "../../src/libraries/Errors.sol";
+import {ERC20Mock} from "../mocks/UnderLyingAssetMock.sol";
+import {MockV3Aggregator} from "../mocks/MockV3Aggregator.sol";
 
-//     address[] public initialSupportedTokens;
+contract LendingPoolTestV2 is Test {
+    ERC20Mock WETH;
+    ERC20Mock DAI;
+    ERC20Mock Token;
+    address public constant ETH = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
 
-//     address owner = makeAddr("owner");
-//     address userOne = makeAddr("userOne");
-//     address userTwo = makeAddr("userTwo");
+    MockV3Aggregator wethPrice;
+    MockV3Aggregator daiPrice;
+    MockV3Aggregator ethPrice;
 
-//     function setUp() public {
-//         WETH = new ERC20Mock("Wrapped Ethereum", "WETH", 18);
-//         DAI = new ERC20Mock("DAI Token", "DAI", 18);
-//         initialSupportedTokens.push(address(WETH));
-//         initialSupportedTokens.push(address(DAI));
+    YToken wETHYToken;
+    YToken daiYToken;
+    YToken ethYToken;
 
-//         vm.startPrank(owner);
-//         interestRateModel = new InterestRateModel(1);
-//         lendingPool = new LendingPool(address(interestRateModel), initialSupportedTokens);
-//         vault = new Vault(address(lendingPool));
+    LendingPool lendingPool;
+    LPManager lpManager;
+    InterestRateModel interestRateModel;
 
-//         lendingPool.initializeVault(address(vault));
-//         vm.stopPrank();
+    address deployer = makeAddr("deployer");
+    address lenderOne = makeAddr("lenderOne");
+    address lenderTwo = makeAddr("lenderTwo");
+    address borrowerOne = makeAddr("borrowerOne");
+    address borrowerTwo = makeAddr("borrowerTwo");
 
-//         WETH.mint(userOne, 1_000e18);
-//         DAI.mint(userTwo, 10_000e18);
+    address liquidator = makeAddr("liquidator");
 
-//         // console.log("WETH address: ", address(WETH));
-//         // console.log("DAI address: ", address(DAI));
-//         // console.log("interestRateModel address: ", address(interestRateModel));
-//         console.log("lendingPool address: ", address(lendingPool));
-//         console.log("vault address: ", address(vault));
-//         // console.log("Owner: ", owner);
-//         console.log("userOne: ", userOne);
-//         // console.log("userTwo: ", userTwo);
-//     }
+    address[] public initialSupportedTokens;
 
-//     /// ======= Tests for setSupportedToken ======= ///
-//     function testSetSupportedTokenTrue() public {
-//         vm.prank(owner);
-//         address yToken = lendingPool.setSupporedToken(ETH, true);
+    function setUp() public {
+        WETH = new ERC20Mock("Wrapped Ethereum", "WETH", 18);
+        DAI = new ERC20Mock("DAI Token", "DAI", 18);
+        Token = new ERC20Mock("Token", "To", 18);
 
-//         assert(lendingPool.isSupportedToken(ETH) == true);
-//         assert(yToken == lendingPool.getYTokenBasedOnToken(address(ETH)));
-//     }
+        wethPrice = new MockV3Aggregator(8, 2500);
+        daiPrice = new MockV3Aggregator(8, 1);
+        ethPrice = new MockV3Aggregator(8, 3000);
 
-//     function testSetSupportedTokenFalse() public {
-//         vm.prank(owner);
-//         lendingPool.setSupporedToken(address(WETH), false);
+        initialSupportedTokens.push(address(WETH));
+        initialSupportedTokens.push(address(DAI));
 
-//         assert(lendingPool.isSupportedToken(address(WETH)) == false);
-//     }
+        vm.startPrank(deployer);
+        interestRateModel = new InterestRateModel(1);
+        lendingPool = new LendingPool(
+            address(interestRateModel),
+            initialSupportedTokens
+        );
+        lpManager = new LPManager(address(lendingPool));
+        lendingPool.initializesLPManager(address(lpManager));
+        vm.stopPrank();
 
-//     function testSetSupportedTokenRevertsIfTokenAlreadySupported() public {
-//         vm.prank(owner);
-//         vm.expectRevert(abi.encodeWithSelector(Errors.YTokenAlreadySupported.selector, address(WETH)));
-//         lendingPool.setSupporedToken(address(WETH), true);
-//     }
+        vm.prank(deployer);
+        lendingPool.addSupportedToken(ETH);
+        ethYToken = YToken(lendingPool.getYTokenBasedOnToken(ETH));
 
-//     function testSetSupportedTokenCanOnlyBeCalledByOwner() public {
-//         vm.prank(userOne);
-//         vm.expectRevert();
-//         lendingPool.setSupporedToken(ETH, true);
-//     }
+        vm.startPrank(deployer);
+        lendingPool.addTokenPriceFeed(address(WETH), address(wethPrice));
+        lendingPool.addTokenPriceFeed(ETH, address(ethPrice));
+        lendingPool.addTokenPriceFeed(address(DAI), address(daiPrice));
+        vm.stopPrank();
 
-//     /// ======= Tests for lend ======= ///
-//     function testLendChangesBalancesAndMitsYTokens() public {
-//         uint256 amount = 100;
-//         vm.startPrank(userOne);
-//         WETH.approve(address(vault), type(uint256).max);
-//         lendingPool.lend(address(WETH), amount);
+        WETH.mint(lenderOne, 1_000e18);
+        WETH.mint(lenderTwo, 1_000e18);
+        DAI.mint(lenderOne, 10_000e18);
+        DAI.mint(lenderTwo, 10_000e18);
 
-//         YToken wethYToken = YToken(lendingPool.getYTokenBasedOnToken(address(WETH)));
+        WETH.mint(borrowerOne, 100e18);
+        DAI.mint(borrowerTwo, 1_000e18);
 
-//         uint256 expectedAmountYTokens = (amount * wethYToken.EXCHANGE_RATE_PRECISION()) / wethYToken.getExchangeRate();
+        wETHYToken = YToken(lendingPool.getYTokenBasedOnToken(address(WETH)));
+        daiYToken = YToken(lendingPool.getYTokenBasedOnToken(address(DAI)));
+    }
 
-//         assert(vault.getBalance(userOne, address(WETH)) == amount);
-//         assert(wethYToken.balanceOf(userOne) == expectedAmountYTokens);
-//     }
+    /// ======= Tests for addSupportedToken ======= ///
+    function testAddSupportedTokenTrue() public {
+        vm.prank(deployer);
+        address yToken = lendingPool.addSupportedToken(address(Token));
 
-//     function testLendRevertsIfTokenNotEthAndMsgValueIsNotZero() public {
-//         uint256 amount = 100;
-//         vm.deal(userOne, 10);
-//         vm.startPrank(userOne);
-//         WETH.approve(address(vault), type(uint256).max);
-//         vm.expectRevert(Errors.ValueSendWithNonETHToken.selector);
-//         lendingPool.lend{value: 10}(address(WETH), amount);
-//     }
+        assert(lendingPool.isSupportedToken(address(Token)) == true);
+        assert(yToken == lendingPool.getYTokenBasedOnToken(address(Token)));
+    }
 
-//     function testLendRevertsIfYTokenAmountIsZero() public {
-//         uint256 amount = 0;
-//         vm.startPrank(userOne);
-//         WETH.approve(address(vault), type(uint256).max);
-//         vm.expectRevert(Errors.AmountCannotBeZero.selector);
-//         lendingPool.lend(address(WETH), amount);
-//     }
+    function testAddSupportedTokenRevertsIfTokenAlreadySupported() public {
+        vm.prank(deployer);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                Errors.YTokenAlreadySupported.selector,
+                address(WETH)
+            )
+        );
+        lendingPool.addSupportedToken(address(WETH));
+    }
 
-//     function testLendEthIncrementUserBalanceCorrectly() public {
-//         vm.prank(owner);
-//         lendingPool.setSupporedToken(ETH, true);
+    function testAddSupportedTokenCanOnlyBeCalledByOwner() public {
+        vm.prank(lenderOne);
+        vm.expectRevert();
+        lendingPool.addSupportedToken(ETH);
+    }
 
-//         uint256 amount = 100;
-//         vm.deal(userOne, amount);
-//         vm.startPrank(userOne);
-//         lendingPool.lend{value: amount}(ETH, amount);
+    /// ======= Tests for removeSupportedToken ======= ///
+    function testRemoveSupportedTokenRemovesTokenFromArray() public {
+        vm.prank(deployer);
+        lendingPool.removeSupportedToken(address(WETH));
 
-//         assert(vault.getBalance(userOne, ETH) == amount);
-//     }
+        assert(lendingPool.getYTokenBasedOnToken(address(WETH)) == address(0));
+    }
 
-//     function testLendEthRevertIfAmountAndMsgValueAreNotEqual() public {
-//         vm.prank(owner);
-//         lendingPool.setSupporedToken(ETH, true);
+    function testRemoveSupportedTokenFalse() public {
+        assert(lendingPool.isSupportedToken(address(WETH)) == true);
 
-//         uint256 amount = 100;
-//         vm.deal(userOne, amount);
-//         vm.startPrank(userOne);
-//         vm.expectRevert(Errors.AmountAndValueSentDoNotMatch.selector);
-//         lendingPool.lend{value: amount}(ETH, 10);
-//     }
+        vm.prank(deployer);
+        lendingPool.removeSupportedToken(address(WETH));
 
-//     function testLendRevertsIfTokenIsNotSupported() public {
-//         uint256 amount = 100;
-//         vm.deal(userOne, amount);
-//         vm.startPrank(userOne);
-//         vm.expectRevert(Errors.TokenNotSupported.selector);
-//         lendingPool.lend{value: amount}(ETH, 100);
-//     }
+        assert(lendingPool.isSupportedToken(address(WETH)) == false);
+    }
 
-//     function testLendRevertsIfAmountZeroIsPassed() public {
-//         uint256 amount = 0;
-//         vm.startPrank(userOne);
-//         WETH.approve(address(vault), type(uint256).max);
-//         vm.expectRevert(Errors.AmountCannotBeZero.selector);
-//         lendingPool.lend(address(WETH), amount);
-//     }
+    function testRemoveSupportedTokenRevertsIfTokenAlreadyRemovedOrNotSupported()
+        public
+    {
+        vm.prank(deployer);
+        vm.expectRevert(Errors.TokenNotSupported.selector);
+        lendingPool.removeSupportedToken(address(Token));
+    }
 
-//     function testLendDifferentTokensMintsDifferentYTokens() public {}
+    /// ======= Tests for lending ======= ///
+    function testLendRevertIfAmountIsZero() public {
+        vm.prank(lenderOne);
+        vm.expectRevert(Errors.AmountCannotBeZero.selector);
+        lendingPool.lend(address(WETH), 0);
+    }
 
-//     /// ======= Tests for withdraw ======= ///
+    function testLendRevertsIfTokenNotSupported() public {
+        vm.prank(lenderOne);
+        vm.expectRevert(Errors.TokenNotSupported.selector);
+        lendingPool.lend(address(Token), 10);
+    }
 
-//     modifier lendUserOne() {
-//         uint256 amount = 100;
-//         vm.startPrank(userOne);
-//         WETH.approve(address(vault), amount);
-//         lendingPool.lend(address(WETH), amount);
-//         vm.stopPrank();
+    function testLendRevertsIfTokenEthAndMsgValueZero() public {
+        vm.deal(lenderOne, 100e18);
+        vm.prank(lenderOne);
+        vm.expectRevert(Errors.ValueSendWithNonETHToken.selector);
+        lendingPool.lend{value: 10}(address(WETH), 10);
+    }
 
-//         _;
-//     }
+    function testLendUpdatesUserAndContractBalanceAndMappingWETH() public {
+        uint256 amount = 10e18;
+        vm.startPrank(lenderOne);
+        WETH.approve(address(lpManager), type(uint256).max);
+        lendingPool.lend(address(WETH), amount);
+        vm.stopPrank();
 
-//     function testWithdrawChangesYTokenAndTokenBalancesWETH() public lendUserOne {
-//         YToken wethYToken = YToken(lendingPool.getYTokenBasedOnToken(address(WETH)));
-//         uint256 amount = 100;
+        uint256 expectedYTokenAmount = (amount *
+            wETHYToken.EXCHANGE_RATE_PRECISION()) /
+            wETHYToken.getExchangeRate();
 
-//         uint256 userOneYTokenBalanceBefore = wethYToken.balanceOf(userOne);
-//         uint256 userOneWETHBalanceBefore = WETH.balanceOf(userOne);
+        assert(lpManager.getTotalLendBalance(address(WETH)) == amount);
+        assert(expectedYTokenAmount == wETHYToken.balanceOf(lenderOne));
+        assert(WETH.balanceOf(address(lpManager)) == amount);
+        assert(
+            lpManager.getAccountLentBalance(lenderOne, address(WETH)) == amount
+        );
+    }
 
-//         vm.prank(userOne);
-//         lendingPool.withdraw(address(WETH), amount);
+    function testLendUpdatesUserAndContractBalanceAndMappingTwiceWETH() public {
+        uint256 amountOne = 10e18;
+        uint256 amountTwo = 100e18;
+        uint256 combinedAmount = amountOne + amountTwo;
+        vm.startPrank(lenderOne);
+        WETH.approve(address(lpManager), type(uint256).max);
+        lendingPool.lend(address(WETH), amountOne);
+        lendingPool.lend(address(WETH), amountTwo);
+        vm.stopPrank();
 
-//         uint256 userOneYTokenBalanceAfter = wethYToken.balanceOf(userOne);
+        uint256 expectedYTokenAmount = (combinedAmount *
+            wETHYToken.EXCHANGE_RATE_PRECISION()) /
+            wETHYToken.getExchangeRate();
+        assert(lpManager.getTotalLendBalance(address(WETH)) == combinedAmount);
+        assert(expectedYTokenAmount == wETHYToken.balanceOf(lenderOne));
+        assert(WETH.balanceOf(address(lpManager)) == combinedAmount);
+        assert(
+            lpManager.getAccountLentBalance(lenderOne, address(WETH)) ==
+                combinedAmount
+        );
+    }
 
-//         uint256 expectedUserBalanceGain = (amount * wethYToken.getExchangeRate()) / wethYToken.EXCHANGE_RATE_PRECISION();
+    function testLendUpdatesUserAndContractBalanceAndMappingETH() public {
+        uint256 amount = 10e18;
+        vm.deal(lenderOne, amount);
+        vm.startPrank(lenderOne);
+        lendingPool.lend{value: amount}(ETH, amount);
+        vm.stopPrank();
 
-//         assert(WETH.balanceOf(userOne) == userOneWETHBalanceBefore + expectedUserBalanceGain);
-//         assert(userOneYTokenBalanceBefore - amount == userOneYTokenBalanceAfter);
-//     }
+        uint256 expectedYTokenAmount = (amount *
+            wETHYToken.EXCHANGE_RATE_PRECISION()) /
+            wETHYToken.getExchangeRate();
+        assert(lpManager.getTotalLendBalance(ETH) == amount);
+        assert(expectedYTokenAmount == ethYToken.balanceOf(lenderOne));
+        assert(address(lpManager).balance == amount);
+        assert(lpManager.getAccountLentBalance(lenderOne, ETH) == amount);
+    }
 
-//     function testWithdrawChangesYTokenAndTokenBalancesETH() public {
-//         vm.prank(owner);
-//         lendingPool.setSupporedToken(ETH, true);
+    function testLendAndCheckLentValueInUsd() public {
+        uint256 amountOne = 10e18;
+        uint256 amountTwo = 100e18;
+        // uint256 combinedAmount = amountOne + amountTwo;
+        vm.startPrank(lenderOne);
+        WETH.approve(address(lpManager), type(uint256).max);
+        lendingPool.lend(address(WETH), amountOne);
+        DAI.approve(address(lpManager), type(uint256).max);
+        lendingPool.lend(address(DAI), amountTwo);
+        vm.stopPrank();
 
-//         uint256 amount = 100;
-//         vm.deal(userOne, amount);
-//         vm.startPrank(userOne);
-//         lendingPool.lend{value: amount}(ETH, amount);
+        uint256 expectedLentValueInUsd = lpManager.getUsdValue(
+            address(WETH),
+            amountOne
+        ) + lpManager.getUsdValue(address(DAI), amountTwo);
+        uint256 actualLentValueInUsd = lpManager
+            .getAccountTotalLentBalanceInUsd(lenderOne);
 
-//         uint256 userOneBalanceAfterDeposit = userOne.balance;
+        assert(expectedLentValueInUsd == actualLentValueInUsd);
+        assert(lpManager.getTotalLendBalance(address(WETH)) == amountOne);
+        assert(lpManager.getTotalLendBalance(address(DAI)) == amountTwo);
+    }
 
-//         lendingPool.withdraw(ETH, amount);
+    /// ======= Tests for withdrawing ======= ///
 
-//         uint256 userOneBalanceAfterWithdrawal = userOne.balance;
-//         vm.stopPrank();
+    modifier lenderOneLendWethAndDai() {
+        uint256 amount = 100e18;
+        // uint256 combinedAmount = amountOne + amountTwo;
+        vm.startPrank(lenderOne);
+        WETH.approve(address(lpManager), type(uint256).max);
+        lendingPool.lend(address(WETH), amount);
+        DAI.approve(address(lpManager), type(uint256).max);
+        lendingPool.lend(address(DAI), amount);
+        vm.stopPrank();
+        _;
+    }
 
-//         assert(userOneBalanceAfterDeposit + userOneBalanceAfterWithdrawal == userOne.balance);
-//         assert(userOneBalanceAfterDeposit + userOneBalanceAfterWithdrawal == amount);
-//     }
+    function testWithdrawRevertsOnZeroAmount() public {
+        vm.prank(lenderOne);
+        vm.expectRevert(Errors.AmountCannotBeZero.selector);
+        lendingPool.withdraw(address(WETH), 0);
+    }
 
-//     function testWithdrawRevertsOnAmountZero() public lendUserOne {
-//         uint256 amount = 0;
-//         vm.prank(userOne);
-//         vm.expectRevert(Errors.AmountCannotBeZero.selector);
-//         lendingPool.withdraw(address(WETH), amount);
-//     }
+    function testWithdrawRevertsOnNotSupportedToken() public {
+        vm.prank(lenderOne);
+        vm.expectRevert(Errors.TokenNotSupported.selector);
+        lendingPool.withdraw(address(Token), 10);
+    }
 
-//     function testWithdrawRevertsIfTokenNotSupported() public lendUserOne {
-//         uint256 amount = 100;
-//         vm.prank(userOne);
-//         vm.expectRevert(Errors.TokenNotSupported.selector);
-//         lendingPool.withdraw(ETH, amount);
-//     }
-// }
+    function testWithdrawUpdatesUserAndContractBalanceAndMapping()
+        public
+        lenderOneLendWethAndDai
+    {
+        uint256 amount = 100e18;
+        uint256 lenderOneYTokenBalanceBefore = wETHYToken.balanceOf(lenderOne);
+        uint256 lpWETHBalanceBefore = WETH.balanceOf(address(lpManager));
+        uint256 lenderOneLentBalanceBefore = lpManager.getAccountLentBalance(
+            lenderOne,
+            address(WETH)
+        );
+        uint256 lenderOneWETHBalanceBefore = WETH.balanceOf(lenderOne);
+        uint256 totalWETHLentBefore = lpManager.getTotalLendBalance(
+            address(WETH)
+        );
+        vm.prank(lenderOne);
+        lendingPool.withdraw(address(WETH), amount);
+        uint256 lenderOneYTokenBalanceAfter = wETHYToken.balanceOf(lenderOne);
+        uint256 lpWETHBalanceAfter = WETH.balanceOf(address(lpManager));
+        uint256 lenderOneLentBalanceAfter = lpManager.getAccountLentBalance(
+            lenderOne,
+            address(WETH)
+        );
+        uint256 lenderOneWETHBalanceAfter = WETH.balanceOf(lenderOne);
+        uint256 totalWETHLentAfter = lpManager.getTotalLendBalance(
+            address(WETH)
+        );
+        uint256 expectedWETHBalanceOfLenderOneAfter = (amount *
+            wETHYToken.getExchangeRate()) /
+            wETHYToken.EXCHANGE_RATE_PRECISION();
+
+        assert(
+            lenderOneYTokenBalanceBefore - amount == lenderOneYTokenBalanceAfter
+        );
+        assert(lpWETHBalanceBefore - amount == lpWETHBalanceAfter);
+        assert(
+            lenderOneLentBalanceBefore - amount == lenderOneLentBalanceAfter
+        );
+        assert(
+            expectedWETHBalanceOfLenderOneAfter ==
+                lenderOneWETHBalanceAfter - lenderOneWETHBalanceBefore
+        );
+        assert(totalWETHLentBefore - amount == totalWETHLentAfter);
+    }
+
+    /// ======= Tests for depsitCollateral ======= ///
+    function testDepositCollateralRevertIfAmountIsZero() public {
+        vm.prank(borrowerOne);
+        vm.expectRevert(Errors.AmountCannotBeZero.selector);
+        lendingPool.depositCollateral(address(WETH), 0);
+    }
+
+    function testDepositCollateralRevertsIfTokenNotSupported() public {
+        vm.prank(borrowerOne);
+        vm.expectRevert(Errors.TokenNotSupported.selector);
+        lendingPool.depositCollateral(address(Token), 10);
+    }
+
+    function testDepositCollateralRevertsIfEthAmountSentDoesNotMatchAmountParam()
+        public
+    {
+        uint256 amount = 10e18;
+        vm.deal(borrowerOne, amount);
+        vm.startPrank(borrowerOne);
+        vm.expectRevert(Errors.AmountAndValueSentDoNotMatch.selector);
+        lendingPool.depositCollateral{value: amount}(ETH, amount + 1);
+        vm.stopPrank();
+    }
+
+    function testDepositCollateralUpdatesUserAndContractBalanceAndMappingWETH()
+        public
+    {
+        uint256 amount = 10e18;
+        vm.startPrank(borrowerOne);
+        WETH.approve(address(lpManager), type(uint256).max);
+        lendingPool.depositCollateral(address(WETH), amount);
+        vm.stopPrank();
+
+        assert(WETH.balanceOf(address(lpManager)) == amount);
+        assert(
+            lpManager.getAccountBalanceCollateral(borrowerOne, address(WETH)) ==
+                amount
+        );
+        assert(lpManager.getTotalCollateralBalance(address(WETH)) == amount);
+    }
+
+    function testDepositCollateralUpdatesUserAndContractBalanceAndMappingETH()
+        public
+    {
+        uint256 amount = 10e18;
+        vm.deal(borrowerOne, amount);
+        vm.startPrank(borrowerOne);
+        lendingPool.depositCollateral{value: amount}(ETH, amount);
+        vm.stopPrank();
+
+        assert(address(lpManager).balance == amount);
+        assert(
+            lpManager.getAccountBalanceCollateral(borrowerOne, ETH) == amount
+        );
+        assert(lpManager.getTotalCollateralBalance(ETH) == amount);
+    }
+
+    /// ======= Tests for borrow ======= ///
+    modifier depositCollateralBorrowerOne() {
+        uint256 amount = 10e18;
+        vm.startPrank(borrowerOne);
+        WETH.approve(address(lpManager), type(uint256).max);
+        lendingPool.depositCollateral(address(WETH), amount);
+        vm.stopPrank();
+        _;
+    }
+
+    modifier depositCollateralBorrowerOneTwice() {
+        uint256 amount = 10e18;
+        vm.startPrank(borrowerOne);
+        WETH.approve(address(lpManager), type(uint256).max);
+        lendingPool.depositCollateral(address(WETH), amount);
+        DAI.approve(address(lpManager), type(uint256).max);
+        lendingPool.depositCollateral(address(WETH), amount);
+        vm.stopPrank();
+        _;
+    }
+
+    function testBorrowRevertsIfAmountZero() public {
+        vm.prank(borrowerOne);
+        vm.expectRevert(Errors.AmountCannotBeZero.selector);
+        lendingPool.borrow(address(WETH), 0);
+    }
+
+    function testBorrowRevertsIfTokenNotSupported() public {
+        vm.prank(borrowerOne);
+        vm.expectRevert(Errors.TokenNotSupported.selector);
+        lendingPool.borrow(address(Token), 10);
+    }
+
+    function testBorrowUpdatesBalancesAndMappings()
+        public
+        depositCollateralBorrowerOne
+    {}
+}
